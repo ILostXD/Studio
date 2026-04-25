@@ -12,8 +12,8 @@
   --accent-soft: rgba(168, 158, 255, 0.24);
   --danger: #ff5f78;
   --radius: 14px;
-  --sticky-row-top: 10px;
-  --sticky-cover-top: 104px;
+  --sticky-row-top: 58px;
+  --sticky-cover-top: 138px;
 }
 
 * {
@@ -173,6 +173,9 @@ textarea {
 }
 
 .text-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border: 1px solid var(--line);
   color: var(--text);
@@ -180,6 +183,11 @@ textarea {
   padding: 8px 14px;
   cursor: pointer;
   transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+}
+
+.text-button .icon-svg {
+  width: 14px;
+  height: 14px;
 }
 
 .text-button:hover {
@@ -1170,6 +1178,14 @@ textarea {
   transition: background-color 140ms ease, transform 140ms ease;
 }
 
+.project-view .track-row--clickable {
+  cursor: pointer;
+}
+
+.project-view .track-row--clickable .track-title-editable {
+  cursor: text;
+}
+
 .project-view .track-row:hover {
   background: rgba(255, 255, 255, 0.025);
   transform: translateX(2px);
@@ -1416,7 +1432,7 @@ textarea {
 .track-menu-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
 }
 
@@ -1808,17 +1824,30 @@ textarea {
 
 /* Inline track row Phase 2 elements */
 .track-status-pill {
+  --status-pill-color: #8690a4;
   display: inline-flex;
   align-items: center;
-  height: 18px;
-  padding: 0 7px;
+  gap: 5px;
+  height: 19px;
+  padding: 0 8px 0 6px;
   border-radius: 999px;
-  border: 1px solid;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  color: #bac2d2;
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.track-status-pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--status-pill-color);
+  opacity: 0.85;
 }
 
 .track-mood-chips-row {
@@ -1912,6 +1941,7 @@ textarea {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  cursor: pointer;
 }
 
 .player-cover-art {
@@ -2193,6 +2223,11 @@ textarea {
 }
 
 @media (max-width: 760px) {
+  :root {
+    --sticky-row-top: 38px;
+    --sticky-cover-top: 110px;
+  }
+
   #app {
     padding: 38px 30px 196px;
   }

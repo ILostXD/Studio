@@ -14,6 +14,7 @@ const playerVolumeToggleButton = document.getElementById(
   "player-volume-toggle",
 );
 const playerAlbumTitleElement = document.getElementById("player-album-title");
+const playerTrackClickArea = document.querySelector(".player-track");
 const playerQueueBtn = document.getElementById("player-queue-btn");
 const playerQueuePopover = document.getElementById("player-queue-popover");
 const playerQueueList = document.getElementById("player-queue-list");
@@ -97,7 +98,6 @@ const SHARE_ACCESS_OPTIONS = [
 ];
 const TRACK_TAG_VISIBILITY_DEFAULTS = {
   date: true,
-  fileName: true,
   bpm: true,
   key: true,
   playCount: true,
@@ -110,11 +110,6 @@ const TRACK_TAG_VISIBILITY_FIELDS = [
     key: "date",
     label: "Track date",
     description: "Show the date tag in each track row",
-  },
-  {
-    key: "fileName",
-    label: "Source file name",
-    description: "Show original file names in track rows",
   },
   {
     key: "bpm",
@@ -198,6 +193,7 @@ const state = {
     queue: [],
     index: -1,
     track: null,
+    sourceContext: null,
     autoplayOnReady: false,
     volume: 1,
     previousVolume: 1,
@@ -1196,6 +1192,9 @@ function playTrack(track, queue, index) {
   state.player.queue = queue;
   state.player.index = index;
   state.player.track = track;
+  state.player.sourceContext = isShareRoute()
+    ? { type: "share", token: getShareToken() }
+    : { type: "project", projectId: getActiveProject()?.id || null };
   state.player.autoplayOnReady = true;
 
   // Increment listen count for this track (non-blocking)
@@ -1226,6 +1225,31 @@ function playTrack(track, queue, index) {
 
   highlightActiveTrackRows();
   updatePlayerButtonState();
+}
+
+function navigateToPlayerSourceContext() {
+  if (!state.player.track || !state.player.sourceContext) {
+    return;
+  }
+
+  const context = state.player.sourceContext;
+  if (context.type === "share" && context.token) {
+    if (state.route.type === "share" && state.route.token === context.token) {
+      return;
+    }
+    navigate(`/share/${encodeURIComponent(context.token)}`);
+    return;
+  }
+
+  if (context.type === "project" && context.projectId) {
+    if (
+      state.route.type === "project" &&
+      state.route.projectId === context.projectId
+    ) {
+      return;
+    }
+    navigate(`/project/${encodeURIComponent(context.projectId)}`);
+  }
 }
 
 function initializePlayer() {
@@ -1341,6 +1365,10 @@ function initializePlayer() {
 
   playerPrevButton.addEventListener("click", playPreviousTrack);
   playerNextButton.addEventListener("click", playNextTrack);
+
+  if (playerTrackClickArea) {
+    playerTrackClickArea.addEventListener("click", navigateToPlayerSourceContext);
+  }
 
   if (playerVolumeInput) {
     playerVolumeInput.addEventListener("input", () => {
@@ -1473,54 +1501,156 @@ async function incrementTrackPlayCount(trackId) {
 }
 
 function detectBpm(mono, sampleRate) {
-  // Downsample to ~11025 Hz for faster processing
-  const factor = Math.max(1, Math.round(sampleRate / 11025));
-  const dsLen = Math.floor(mono.length / factor);
-  const actualSr = sampleRate / factor;
+  const maxSamples = Math.min(mono.length, sampleRate * 180);
+  if (maxSamples < sampleRate * 6) {
+    return null;
+  }
 
-  const ds = new Float32Array(dsLen);
-  for (let i = 0; i < dsLen; i++) ds[i] = mono[i * factor];
+  // Downsample while keeping enough rhythmic detail for transient analysis.
+  const targetSampleRate = 22050;
+  const factor = Math.max(1, Math.floor(sampleRate / targetSampleRate));
+  const actualSampleRate = sampleRate / factor;
+  const dsLength = Math.floor(maxSamples / factor);
+  if (dsLength < 4096) {
+    return null;
+  }
 
-  // Energy envelope in ~23ms frames
-  const frameSize = Math.max(1, Math.round(actualSr / 44));
-  const numFrames = Math.floor(dsLen / frameSize);
-  if (numFrames < 4) return null;
+  const ds = new Float32Array(dsLength);
+  for (let i = 0; i < dsLength; i++) {
+    ds[i] = mono[i * factor] || 0;
+  }
 
-  const energy = new Float32Array(numFrames);
-  for (let f = 0; f < numFrames; f++) {
-    let e = 0;
-    for (let i = 0; i < frameSize; i++) {
-      const s = ds[f * frameSize + i] || 0;
-      e += s * s;
+  // Pre-emphasis reduces sustained low-end bias (common BPM source of drift).
+  for (let i = dsLength - 1; i >= 1; i--) {
+    ds[i] = ds[i] - 0.97 * ds[i - 1];
+  }
+  ds[0] = 0;
+
+  const envelopeHop = Math.max(1, Math.round(actualSampleRate / 200));
+  const envelopeFrames = Math.floor(dsLength / envelopeHop);
+  if (envelopeFrames < 256) {
+    return null;
+  }
+
+  const envelope = new Float32Array(envelopeFrames);
+  for (let f = 0; f < envelopeFrames; f++) {
+    const start = f * envelopeHop;
+    let sum = 0;
+    for (let i = 0; i < envelopeHop; i++) {
+      sum += Math.abs(ds[start + i] || 0);
     }
-    energy[f] = e / frameSize;
+    envelope[f] = sum / envelopeHop;
   }
 
-  // Half-wave rectified energy difference (onset strength)
-  const onset = new Float32Array(numFrames);
-  for (let f = 1; f < numFrames; f++) {
-    onset[f] = Math.max(0, energy[f] - energy[f - 1]);
+  // Mild smoothing helps stabilize onset candidates.
+  const smooth = new Float32Array(envelopeFrames);
+  const smoothWindow = 7;
+  let runningSum = 0;
+  for (let i = 0; i < envelopeFrames; i++) {
+    runningSum += envelope[i];
+    if (i >= smoothWindow) {
+      runningSum -= envelope[i - smoothWindow];
+    }
+    smooth[i] = runningSum / Math.min(smoothWindow, i + 1);
   }
 
-  // Autocorrelation over 50–200 BPM range
-  const fps = actualSr / frameSize;
-  const minLag = Math.max(1, Math.round((fps * 60) / 200));
-  const maxLag = Math.round((fps * 60) / 50);
-  const n = numFrames;
+  const onset = new Float32Array(envelopeFrames);
+  let onsetMean = 0;
+  for (let i = 1; i < envelopeFrames; i++) {
+    const delta = smooth[i] - smooth[i - 1];
+    const positive = delta > 0 ? delta : 0;
+    onset[i] = positive;
+    onsetMean += positive;
+  }
+  onsetMean /= Math.max(1, envelopeFrames - 1);
 
-  let bestLag = minLag;
-  let bestCorr = -Infinity;
-  for (let lag = minLag; lag <= maxLag; lag++) {
-    let corr = 0;
-    for (let i = 0; i < n - lag; i++) corr += onset[i] * onset[i + lag];
-    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  const onsetThreshold = onsetMean * 1.55;
+  const maxTempo = 220;
+  const minPeakGap = Math.max(
+    1,
+    Math.round((60 / maxTempo) * (actualSampleRate / envelopeHop)),
+  );
+
+  const peaks = [];
+  let lastPeak = -minPeakGap;
+  for (let i = 1; i < envelopeFrames - 1; i++) {
+    const value = onset[i];
+    if (value < onsetThreshold) {
+      continue;
+    }
+    if (value >= onset[i - 1] && value >= onset[i + 1]) {
+      if (i - lastPeak >= minPeakGap) {
+        peaks.push(i);
+        lastPeak = i;
+      }
+    }
   }
 
-  let bpm = Math.round((60 * fps) / bestLag);
-  // Octave correction: keep in 60–180 range
-  while (bpm > 180) bpm = Math.round(bpm / 2);
-  while (bpm < 60) bpm = Math.round(bpm * 2);
-  return bpm;
+  if (peaks.length < 8) {
+    return null;
+  }
+
+  const frameRate = actualSampleRate / envelopeHop;
+  const tempoScore = new Map();
+  const lookahead = 12;
+
+  for (let i = 0; i < peaks.length; i++) {
+    const left = peaks[i];
+    const maxJ = Math.min(peaks.length, i + lookahead);
+    for (let j = i + 1; j < maxJ; j++) {
+      const interval = peaks[j] - left;
+      if (interval <= 0) {
+        continue;
+      }
+
+      let bpm = (60 * frameRate) / interval;
+      while (bpm < 70) bpm *= 2;
+      while (bpm > 180) bpm /= 2;
+      if (bpm < 70 || bpm > 180) {
+        continue;
+      }
+
+      const roundedTempo = Math.round(bpm);
+      const pairWeight = lookahead - (j - i) + 1;
+      const closeness = Math.max(0, 1 - Math.abs(bpm - roundedTempo));
+      const weight = pairWeight * (0.7 + 0.3 * closeness);
+
+      tempoScore.set(
+        roundedTempo,
+        (tempoScore.get(roundedTempo) || 0) + weight,
+      );
+    }
+  }
+
+  if (!tempoScore.size) {
+    return null;
+  }
+
+  let bestTempo = 0;
+  let bestClusterScore = -Infinity;
+  for (const [tempo, score] of tempoScore.entries()) {
+    const clusterScore =
+      score +
+      (tempoScore.get(tempo - 1) || 0) +
+      (tempoScore.get(tempo + 1) || 0);
+    if (clusterScore > bestClusterScore) {
+      bestClusterScore = clusterScore;
+      bestTempo = tempo;
+    }
+  }
+
+  let weightedTempo = 0;
+  let weightedTotal = 0;
+  for (let offset = -1; offset <= 1; offset++) {
+    const tempo = bestTempo + offset;
+    const score = tempoScore.get(tempo) || 0;
+    weightedTempo += tempo * score;
+    weightedTotal += score;
+  }
+
+  return weightedTotal > 0
+    ? Math.round(weightedTempo / weightedTotal)
+    : bestTempo;
 }
 
 function detectKey(mono, sampleRate) {
@@ -2435,7 +2565,6 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   const { canEdit = false } = options;
   const overlay = document.getElementById("track-menu-overlay");
   const closeButton = document.getElementById("track-menu-close");
-  const saveButton = document.getElementById("track-menu-save");
   const deleteButton = document.getElementById("track-menu-delete");
   const playButton = document.getElementById("track-menu-play");
   const todoAddButton = document.getElementById("track-todo-add");
@@ -2462,20 +2591,6 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   if (closeButton) {
     closeButton.addEventListener("click", () => {
       closeTrackMenu();
-    });
-  }
-
-  if (saveButton) {
-    saveButton.addEventListener("click", async () => {
-      if (!canEdit) {
-        return;
-      }
-
-      try {
-        await saveTrackMenu(projectId);
-      } catch (error) {
-        showToast(error.message || "Could not save track details");
-      }
     });
   }
 
@@ -3334,7 +3449,7 @@ function renderHomeView() {
         </div>
         <div class="topbar-actions">
           <button id="open-settings-button" class="circle-button" type="button" aria-label="Open settings" title="Settings">${icon("settings")}</button>
-          <button id="logout-button" class="text-button" type="button">Logout</button>
+          <button id="logout-button" class="text-button" type="button">${icon("logout")} Log out</button>
         </div>
       </header>
 
@@ -3476,9 +3591,11 @@ function projectTrackHtml(track, listIndex) {
   }
 
   // Phase 2 inline badges
-  const trackStatusColor = track.trackStatus ? (TRACK_STATUS_COLORS[track.trackStatus] || "") : "";
+  const trackStatusColor = track.trackStatus
+    ? (TRACK_STATUS_COLORS[track.trackStatus] || "#8690a4")
+    : "";
   const trackStatusBadge = trackTagVisibility.status && track.trackStatus
-    ? `<span class="track-status-pill" style="background:${trackStatusColor}22;color:${trackStatusColor};border-color:${trackStatusColor}55">${escapeHtml(track.trackStatus)}</span>`
+    ? `<span class="track-status-pill" style="--status-pill-color:${trackStatusColor}">${escapeHtml(track.trackStatus)}</span>`
     : "";
 
   const moodChipsHtml =
@@ -3490,17 +3607,10 @@ function projectTrackHtml(track, listIndex) {
     : "";
 
   const trackMetaSegments = [];
-  const activeFileName = track.originalName || activeVersion?.originalName || "";
 
   if (trackTagVisibility.date) {
     trackMetaSegments.push(
       `<span class="track-date">${escapeHtml(createdOn)}</span>`,
-    );
-  }
-
-  if (trackTagVisibility.fileName && activeFileName) {
-    trackMetaSegments.push(
-      `<span class="track-file-name">${escapeHtml(activeFileName)}</span>`,
     );
   }
 
@@ -3534,7 +3644,7 @@ function projectTrackHtml(track, listIndex) {
   const hasBottomRow = badges.length || trackStatusBadge;
 
   return `
-    <article class="track-row" data-track-id="${escapeHtml(track.id)}" draggable="${canReorder ? "true" : "false"}">
+    <article class="track-row${canListen ? " track-row--clickable" : ""}" data-track-id="${escapeHtml(track.id)}" draggable="${canReorder ? "true" : "false"}">
       <div class="track-index drag-handle" title="Drag to reorder">${listIndex + 1}</div>
       <div class="track-main">
         <div class="track-line">
@@ -3728,7 +3838,6 @@ function renderProjectView() {
 
           <div class="track-menu-actions">
             <button id="track-menu-play" class="secondary-button track-menu-play" type="button" ${canListen ? "" : "disabled"}>${icon("play")} Play</button>
-            <button id="track-menu-save" class="primary-button" type="button" ${canEdit ? "" : "disabled"}>Save</button>
           </div>
 
           <div class="track-menu-field">
@@ -3934,8 +4043,6 @@ function renderProjectView() {
               <textarea id="meta-distributor-notes" class="metadata-textarea" placeholder="DistroKid / TuneCore details, ISRC codes, release admin notes…" ${canEdit ? "" : "disabled"}>${escapeHtml(project.distributorNotes || "")}</textarea>
             </div>
 
-            ${canEdit ? `<div class="metadata-actions"><button id="metadata-save" class="primary-button" type="button">Save Metadata</button></div>` : ""}
-
           </div>
         </div>
       </div>
@@ -3966,7 +4073,6 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
   const completionDisplay = document.getElementById("meta-completion-display");
   const starWidget = document.getElementById("meta-star-rating");
   const colorPaletteEl = document.getElementById("meta-color-palette");
-  const saveBtn = document.getElementById("metadata-save");
 
   if (!panel) return;
 
@@ -4143,20 +4249,6 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
     });
   }
 
-  // Optional manual flush
-  if (saveBtn) {
-    saveBtn.addEventListener("click", async () => {
-      try {
-        if (metadataAutosaveController) {
-          await metadataAutosaveController.flush();
-          metadataAutosaveController.markCurrentAsSaved();
-        }
-        showToast("Metadata saved");
-      } catch (error) {
-        showToast(error.message || "Could not save metadata");
-      }
-    });
-  }
 }
 
 function bindProjectViewInteractions() {
@@ -4556,6 +4648,41 @@ function bindProjectViewInteractions() {
       if (index < 0) {
         return;
       }
+      playTrack(queue[index], queue, index);
+    });
+  });
+
+  appRoot.querySelectorAll(".track-row[data-track-id]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      if (!canListen) {
+        return;
+      }
+
+      if (
+        event.target.closest(
+          "button,a,input,select,textarea,label,[contenteditable='true'],.drag-handle",
+        )
+      ) {
+        return;
+      }
+
+      const selectedText = window.getSelection?.().toString().trim();
+      if (selectedText) {
+        return;
+      }
+
+      const trackId = row.dataset.trackId;
+      if (!trackId) {
+        return;
+      }
+
+      const activeProject = getActiveProject();
+      const queue = (activeProject && activeProject.tracks) || [];
+      const index = queue.findIndex((track) => track.id === trackId);
+      if (index < 0) {
+        return;
+      }
+
       playTrack(queue[index], queue, index);
     });
   });
