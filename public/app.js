@@ -27,6 +27,69 @@ const preloadAudioEl = document.createElement("audio");
 preloadAudioEl.preload = "auto";
 
 const STATUS_OPTIONS = ["In Progress", "Mastering", "Done"];
+const TRACK_STATUS_OPTIONS = ["Idea", "Demo", "Recording", "Mixing", "Mastering", "Done"];
+const TRACK_STATUS_COLORS = {
+  Idea: "#6e6e8a",
+  Demo: "#4a9eff",
+  Recording: "#ff8c42",
+  Mixing: "#f5c518",
+  Mastering: "#a89eff",
+  Done: "#3ecf8e",
+};
+const MOOD_TAG_OPTIONS = ["Dark", "Energetic", "Melancholic", "Hype", "Chill", "Aggressive", "Euphoric", "Nostalgic"];
+const MOOD_TAG_COLORS = {
+  Dark: "#5a4a6e",
+  Energetic: "#ff5e3a",
+  Melancholic: "#4a7ebd",
+  Hype: "#ff3cac",
+  Chill: "#38b2ac",
+  Aggressive: "#e53e3e",
+  Euphoric: "#d69e2e",
+  Nostalgic: "#744210",
+};
+const MUSICAL_KEYS = [
+  "C Major", "C Minor",
+  "C# Major", "C# Minor",
+  "D Major", "D Minor",
+  "D# Major", "D# Minor",
+  "E Major", "E Minor",
+  "F Major", "F Minor",
+  "F# Major", "F# Minor",
+  "G Major", "G Minor",
+  "G# Major", "G# Minor",
+  "A Major", "A Minor",
+  "A# Major", "A# Minor",
+  "B Major", "B Minor",
+];
+const CAMELOT_MAP = {
+  "C Major": "8B",  "C Minor": "5A",
+  "C# Major": "3B", "C# Minor": "12A",
+  "D Major": "10B", "D Minor": "7A",
+  "D# Major": "5B", "D# Minor": "2A",
+  "E Major": "12B", "E Minor": "9A",
+  "F Major": "7B",  "F Minor": "4A",
+  "F# Major": "2B", "F# Minor": "11A",
+  "G Major": "9B",  "G Minor": "6A",
+  "G# Major": "4B", "G# Minor": "1A",
+  "A Major": "11B", "A Minor": "8A",
+  "A# Major": "6B", "A# Minor": "3A",
+  "B Major": "1B",  "B Minor": "10A",
+};
+// Colors follow the Camelot wheel spectrum (teal→green→yellow→orange→pink→purple→blue→teal)
+const CAMELOT_COLORS = {
+  "1A": "#3ecfb8", "1B": "#3abfaa",
+  "2A": "#5dd87c", "2B": "#52cc6e",
+  "3A": "#a0d84a", "3B": "#b4e040",
+  "4A": "#e8d03a", "4B": "#f0c828",
+  "5A": "#f0a030", "5B": "#e89020",
+  "6A": "#e86040", "6B": "#e05038",
+  "7A": "#e84878", "7B": "#d83868",
+  "8A": "#c840c8", "8B": "#b830b8",
+  "9A": "#9040e0", "9B": "#8030d0",
+  "10A": "#5060e8", "10B": "#4050d8",
+  "11A": "#3898d8", "11B": "#30a8e0",
+  "12A": "#30bce0", "12B": "#30ccd4",
+};
 const SHARE_ACCESS_OPTIONS = [
   { value: "listen", label: "See + Listen" },
   { value: "view", label: "See Only" },
@@ -93,6 +156,13 @@ const state = {
     todos: [],
     versions: [],
     activeVersionId: null,
+    bpm: null,
+    key: null,
+    trackStatus: null,
+    moodTags: [],
+    listenCount: 0,
+    lufs: null,
+    peakDb: null,
   },
   metadataPanel: {
     colorPalette: [],
@@ -882,6 +952,11 @@ function playTrack(track, queue, index) {
   state.player.track = track;
   state.player.autoplayOnReady = true;
 
+  // Increment listen count for this track (non-blocking)
+  if (track.id && getActiveProject()) {
+    incrementTrackPlayCount(track.id);
+  }
+
   const trackDisplayTitle =
     track.title || track.originalName || "Untitled Track";
   document.title = trackDisplayTitle + " — Studio";
@@ -1124,6 +1199,219 @@ function initializePlayer() {
   });
 }
 
+async function incrementTrackPlayCount(trackId) {
+  try {
+    const endpoint = isShareRoute()
+      ? `/api/share/${encodeURIComponent(getShareToken())}/tracks/${encodeURIComponent(trackId)}/play`
+      : `/api/projects/${encodeURIComponent(getActiveProject().id)}/tracks/${encodeURIComponent(trackId)}/play`;
+    const payload = await apiRequest(endpoint, { method: "POST" });
+    // Update listen count in local state
+    const activeProject = getActiveProject();
+    if (activeProject && Array.isArray(activeProject.tracks)) {
+      const track = activeProject.tracks.find((t) => t.id === trackId);
+      if (track) {
+        track.listenCount = payload.listenCount;
+      }
+    }
+    // If track menu is open for this track, refresh its count
+    if (state.trackMenu.trackId === trackId) {
+      state.trackMenu.listenCount = payload.listenCount;
+      const listenCountEl = document.getElementById("track-listen-count");
+      if (listenCountEl) {
+        listenCountEl.textContent = `Played ${payload.listenCount} time${payload.listenCount !== 1 ? "s" : ""}`;
+      }
+    }
+  } catch (_error) {
+    // Non-critical — ignore failures silently
+  }
+}
+
+function detectBpm(mono, sampleRate) {
+  // Downsample to ~11025 Hz for faster processing
+  const factor = Math.max(1, Math.round(sampleRate / 11025));
+  const dsLen = Math.floor(mono.length / factor);
+  const actualSr = sampleRate / factor;
+
+  const ds = new Float32Array(dsLen);
+  for (let i = 0; i < dsLen; i++) ds[i] = mono[i * factor];
+
+  // Energy envelope in ~23ms frames
+  const frameSize = Math.max(1, Math.round(actualSr / 44));
+  const numFrames = Math.floor(dsLen / frameSize);
+  if (numFrames < 4) return null;
+
+  const energy = new Float32Array(numFrames);
+  for (let f = 0; f < numFrames; f++) {
+    let e = 0;
+    for (let i = 0; i < frameSize; i++) {
+      const s = ds[f * frameSize + i] || 0;
+      e += s * s;
+    }
+    energy[f] = e / frameSize;
+  }
+
+  // Half-wave rectified energy difference (onset strength)
+  const onset = new Float32Array(numFrames);
+  for (let f = 1; f < numFrames; f++) {
+    onset[f] = Math.max(0, energy[f] - energy[f - 1]);
+  }
+
+  // Autocorrelation over 50–200 BPM range
+  const fps = actualSr / frameSize;
+  const minLag = Math.max(1, Math.round((fps * 60) / 200));
+  const maxLag = Math.round((fps * 60) / 50);
+  const n = numFrames;
+
+  let bestLag = minLag;
+  let bestCorr = -Infinity;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let corr = 0;
+    for (let i = 0; i < n - lag; i++) corr += onset[i] * onset[i + lag];
+    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  }
+
+  let bpm = Math.round((60 * fps) / bestLag);
+  // Octave correction: keep in 60–180 range
+  while (bpm > 180) bpm = Math.round(bpm / 2);
+  while (bpm < 60) bpm = Math.round(bpm * 2);
+  return bpm;
+}
+
+function detectKey(mono, sampleRate) {
+  const NOTE_NAMES = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+  const chroma = new Float32Array(12);
+
+  // Analyse at most 30 seconds
+  const maxSamples = Math.min(mono.length, sampleRate * 30);
+  const blockSize = 8192;
+
+  // Goertzel-based chroma: sum energy at each pitch class across 4 octaves (C2–B5)
+  for (let pc = 0; pc < 12; pc++) {
+    for (let octave = 2; octave <= 5; octave++) {
+      const midiNote = 36 + pc + (octave - 2) * 12; // C2=36
+      const freq = 440 * Math.pow(2, (midiNote - 69) / 12);
+      if (freq >= sampleRate / 2 || freq < 20) continue;
+
+      const coeff = 2 * Math.cos((2 * Math.PI * freq) / sampleRate);
+      let totalEnergy = 0;
+      let blockCount = 0;
+
+      for (let start = 0; start + blockSize <= maxSamples; start += blockSize) {
+        let s1 = 0, s2 = 0;
+        for (let i = 0; i < blockSize; i++) {
+          const s0 = mono[start + i] + coeff * s1 - s2;
+          s2 = s1;
+          s1 = s0;
+        }
+        totalEnergy += s1 * s1 + s2 * s2 - coeff * s1 * s2;
+        blockCount++;
+      }
+      chroma[pc] += blockCount > 0 ? totalEnergy / blockCount : 0;
+    }
+  }
+
+  // Normalize
+  const maxC = Math.max(...chroma);
+  if (maxC > 0) for (let i = 0; i < 12; i++) chroma[i] /= maxC;
+
+  // Krumhansl-Schmuckler key profiles
+  const MAJ = [6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88];
+  const MIN = [6.33,2.68,3.52,5.38,2.60,3.53,2.54,4.75,3.98,2.69,3.34,3.17];
+
+  function pearson(profile, shift) {
+    let ma = 0, mb = 0;
+    for (let i = 0; i < 12; i++) { ma += chroma[i]; mb += profile[(i + shift) % 12]; }
+    ma /= 12; mb /= 12;
+    let num = 0, da = 0, db = 0;
+    for (let i = 0; i < 12; i++) {
+      const ai = chroma[i] - ma;
+      const bi = profile[(i + shift) % 12] - mb;
+      num += ai * bi; da += ai * ai; db += bi * bi;
+    }
+    return da * db > 0 ? num / Math.sqrt(da * db) : 0;
+  }
+
+  let bestKey = null;
+  let bestCorr = -Infinity;
+  for (let root = 0; root < 12; root++) {
+    const mj = pearson(MAJ, root);
+    const mn = pearson(MIN, root);
+    if (mj > bestCorr) { bestCorr = mj; bestKey = NOTE_NAMES[root] + " Major"; }
+    if (mn > bestCorr) { bestCorr = mn; bestKey = NOTE_NAMES[root] + " Minor"; }
+  }
+  return bestKey;
+}
+
+async function analyzeAudio(audioUrl) {
+  const response = await fetch(audioUrl, { credentials: "include" });
+  if (!response.ok) throw new Error("Could not fetch audio file for analysis");
+
+  const arrayBuffer = await response.arrayBuffer();
+  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  let audioBuffer;
+  try {
+    audioBuffer = await new Promise((resolve, reject) => {
+      audioCtx.decodeAudioData(arrayBuffer, resolve, reject);
+    });
+  } finally {
+    audioCtx.close();
+  }
+
+  const numChannels = audioBuffer.numberOfChannels;
+  const length = audioBuffer.length;
+
+  // Build mono mix + compute LUFS/peak simultaneously
+  const mono = new Float32Array(length);
+  let sumMeanSquare = 0;
+  let peak = 0;
+
+  for (let c = 0; c < numChannels; c++) {
+    const data = audioBuffer.getChannelData(c);
+    let channelSumSq = 0;
+    for (let i = 0; i < length; i++) {
+      const s = data[i];
+      mono[i] += s;
+      const a = s < 0 ? -s : s;
+      if (a > peak) peak = a;
+      channelSumSq += s * s;
+    }
+    sumMeanSquare += channelSumSq / length;
+  }
+  for (let i = 0; i < length; i++) mono[i] /= numChannels;
+
+  const lufs = sumMeanSquare > 0
+    ? Math.round((-0.691 + 10 * Math.log10(sumMeanSquare)) * 10) / 10
+    : null;
+  const peakDb = peak > 0 ? Math.round(20 * Math.log10(peak) * 10) / 10 : null;
+  const bpm = detectBpm(mono, audioBuffer.sampleRate);
+  const key = detectKey(mono, audioBuffer.sampleRate);
+
+  return { lufs, peakDb, bpm, key };
+}
+
+async function autoAnalyzeTrack(trackId, audioUrl) {
+  if (state.trackMenu.trackId !== trackId) return;
+  const analyzeBtn = document.getElementById("track-lufs-analyze");
+  if (analyzeBtn) { analyzeBtn.disabled = true; analyzeBtn.textContent = "Detecting…"; }
+  try {
+    const result = await analyzeAudio(audioUrl);
+    if (state.trackMenu.trackId !== trackId) return; // Menu closed during analysis
+    state.trackMenu.lufs = result.lufs;
+    state.trackMenu.peakDb = result.peakDb;
+    if (state.trackMenu.bpm === null) state.trackMenu.bpm = result.bpm;
+    if (state.trackMenu.key === null) state.trackMenu.key = result.key;
+    renderTrackMenuPhase2();
+  } catch (_e) {
+    // Silent fail — user can still click Analyze manually
+  } finally {
+    if (state.trackMenu.trackId === trackId) {
+      const btn = document.getElementById("track-lufs-analyze");
+      if (btn) btn.disabled = false;
+      renderLufsDisplay();
+    }
+  }
+}
+
 async function fetchProjects() {
   const payload = await apiRequest("/api/projects");
   state.projects = payload.projects || [];
@@ -1247,6 +1535,13 @@ function closeTrackMenu() {
     todos: [],
     versions: [],
     activeVersionId: null,
+    bpm: null,
+    key: null,
+    trackStatus: null,
+    moodTags: [],
+    listenCount: 0,
+    lufs: null,
+    peakDb: null,
   };
 }
 
@@ -1467,6 +1762,13 @@ function openTrackMenu(trackId) {
     ? [...track.versions]
     : [];
   state.trackMenu.activeVersionId = track.activeVersionId || null;
+  state.trackMenu.bpm = track.bpm ?? null;
+  state.trackMenu.key = track.key || null;
+  state.trackMenu.trackStatus = track.trackStatus || null;
+  state.trackMenu.moodTags = Array.isArray(track.moodTags) ? [...track.moodTags] : [];
+  state.trackMenu.listenCount = track.listenCount || 0;
+  state.trackMenu.lufs = track.lufs ?? null;
+  state.trackMenu.peakDb = track.peakDb ?? null;
 
   const titleElement = document.getElementById("track-menu-title");
   const subtitleElement = document.getElementById("track-menu-subtitle");
@@ -1513,6 +1815,12 @@ function openTrackMenu(trackId) {
   overlay.setAttribute("aria-hidden", "false");
   renderTrackMenuTodos();
   renderTrackMenuVersions();
+  renderTrackMenuPhase2();
+
+  // Auto-detect for tracks that haven't been analyzed yet
+  if (canCurrentViewEdit() && track.audioUrl && track.bpm === null && track.key === null && track.lufs === null) {
+    setTimeout(() => autoAnalyzeTrack(track.id, track.audioUrl), 300);
+  }
 }
 
 async function saveTrackMenu(projectId) {
@@ -1536,10 +1844,25 @@ async function saveTrackMenu(projectId) {
     .map((todo) => normalizeTodoItem(todo))
     .filter((todo) => todo !== null);
 
+  // Read Phase 2 fields from UI
+  const bpmInput = document.getElementById("track-bpm-input");
+  const keySelect = document.getElementById("track-key-select");
+  const trackStatusSelect = document.getElementById("track-status-select");
+
+  const bpmValue = bpmInput ? (bpmInput.value !== "" ? Number(bpmInput.value) : null) : state.trackMenu.bpm;
+  const keyValue = keySelect ? (keySelect.value || null) : state.trackMenu.key;
+  const trackStatusValue = trackStatusSelect ? (trackStatusSelect.value || null) : state.trackMenu.trackStatus;
+
   await saveTrack(projectId, state.trackMenu.trackId, {
     notes: state.trackMenu.notes,
     lyrics: state.trackMenu.lyrics,
     todos: todosPayload,
+    bpm: bpmValue,
+    key: keyValue,
+    trackStatus: trackStatusValue,
+    moodTags: state.trackMenu.moodTags,
+    lufs: state.trackMenu.lufs,
+    peakDb: state.trackMenu.peakDb,
   });
 
   showToast("Track details saved");
@@ -1566,6 +1889,132 @@ async function deleteTrackFromMenu(projectId) {
   updateActiveProjectFromPayload(payload.project);
   closeTrackMenu();
   renderProjectView();
+}
+
+function renderTrackMenuPhase2() {
+  const canEdit = canCurrentViewEdit();
+
+  // BPM
+  const bpmInput = document.getElementById("track-bpm-input");
+  if (bpmInput) {
+    bpmInput.value = state.trackMenu.bpm !== null ? String(state.trackMenu.bpm) : "";
+    bpmInput.disabled = !canEdit;
+  }
+
+  // Key
+  const keySelect = document.getElementById("track-key-select");
+  if (keySelect) {
+    keySelect.value = state.trackMenu.key || "";
+    keySelect.disabled = !canEdit;
+  }
+  const camelotBadgeEl = document.getElementById("track-camelot-badge");
+  if (camelotBadgeEl) {
+    const code = state.trackMenu.key ? CAMELOT_MAP[state.trackMenu.key] : null;
+    const color = code ? (CAMELOT_COLORS[code] || "#888") : null;
+    if (code && color) {
+      camelotBadgeEl.textContent = code;
+      camelotBadgeEl.style.cssText = `background:${color}26;color:${color};border-color:${color}55`;
+      camelotBadgeEl.hidden = false;
+    } else {
+      camelotBadgeEl.hidden = true;
+    }
+  }
+
+  // Status
+  const trackStatusSelect = document.getElementById("track-status-select");
+  if (trackStatusSelect) {
+    trackStatusSelect.value = state.trackMenu.trackStatus || "";
+    trackStatusSelect.disabled = !canEdit;
+    updateTrackStatusSelectColor(trackStatusSelect);
+  }
+
+  // Mood tags
+  const moodWrap = document.getElementById("track-mood-tags");
+  if (moodWrap) {
+    renderMoodTags(moodWrap, canEdit);
+  }
+
+  // Listen count
+  const listenCountEl = document.getElementById("track-listen-count");
+  if (listenCountEl) {
+    const count = state.trackMenu.listenCount || 0;
+    listenCountEl.textContent = `Played ${count} time${count !== 1 ? "s" : ""}`;
+  }
+
+  // LUFS display
+  renderLufsDisplay();
+}
+
+function updateTrackStatusSelectColor(selectEl) {
+  if (!selectEl) return;
+  const val = selectEl.value;
+  const color = val ? (TRACK_STATUS_COLORS[val] || "") : "";
+  selectEl.style.borderColor = color ? color + "88" : "";
+  selectEl.style.color = color || "";
+  selectEl.style.boxShadow = color ? `0 0 0 1px ${color}44` : "";
+}
+
+function camelotBadgeHtml(key) {
+  if (!key) return "";
+  const code = CAMELOT_MAP[key];
+  if (!code) return "";
+  const color = CAMELOT_COLORS[code] || "#888";
+  return `<span class="camelot-badge" style="background:${color}26;color:${color};border-color:${color}55">${escapeHtml(code)}</span>`;
+}
+
+function renderMoodTags(container, canEdit) {
+  const activeTags = state.trackMenu.moodTags || [];
+  container.innerHTML = MOOD_TAG_OPTIONS.map((tag) => {
+    const isActive = activeTags.includes(tag);
+    const color = MOOD_TAG_COLORS[tag] || "#555";
+    const activeStyle = isActive
+      ? `background:${color}33;border-color:${color};color:${color}`
+      : "";
+    return `<button
+      class="mood-chip${isActive ? " active" : ""}"
+      type="button"
+      data-mood="${escapeHtml(tag)}"
+      style="${activeStyle}"
+      ${canEdit ? "" : "disabled"}
+    >${escapeHtml(tag)}</button>`;
+  }).join("");
+
+  if (!canEdit) return;
+
+  container.querySelectorAll("[data-mood]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tag = btn.dataset.mood;
+      const idx = state.trackMenu.moodTags.indexOf(tag);
+      if (idx >= 0) {
+        state.trackMenu.moodTags.splice(idx, 1);
+      } else {
+        state.trackMenu.moodTags.push(tag);
+      }
+      renderMoodTags(container, canEdit);
+    });
+  });
+}
+
+function renderLufsDisplay() {
+  const lufsDisplay = document.getElementById("track-lufs-display");
+  const lufsAnalyzeBtn = document.getElementById("track-lufs-analyze");
+  if (!lufsDisplay) return;
+
+  const lufs = state.trackMenu.lufs;
+  const peakDb = state.trackMenu.peakDb;
+
+  if (lufs !== null || peakDb !== null) {
+    lufsDisplay.innerHTML = [
+      lufs !== null ? `<span class="lufs-value"><span class="lufs-label">LUFS</span> ${lufs} dBFS</span>` : "",
+      peakDb !== null ? `<span class="lufs-value"><span class="lufs-label">Peak</span> ${peakDb} dBFS</span>` : "",
+    ].filter(Boolean).join("");
+  } else {
+    lufsDisplay.innerHTML = '<span class="lufs-empty">Not analyzed</span>';
+  }
+
+  if (lufsAnalyzeBtn) {
+    lufsAnalyzeBtn.textContent = lufs !== null ? "Re-analyze" : "Analyze";
+  }
 }
 
 function bindTrackMenuInteractions(projectId, options = {}) {
@@ -1708,6 +2157,63 @@ function bindTrackMenuInteractions(projectId, options = {}) {
         showToast("Track version uploaded");
       } catch (error) {
         showToast(error.message || "Could not upload version");
+      }
+    });
+  }
+
+  // Audio analyze button (BPM + Key + Loudness)
+  const lufsAnalyzeBtn = document.getElementById("track-lufs-analyze");
+  if (lufsAnalyzeBtn) {
+    lufsAnalyzeBtn.addEventListener("click", async () => {
+      const track = getCurrentProjectTrack(state.trackMenu.trackId);
+      if (!track || !track.audioUrl) {
+        showToast("No audio file available to analyze");
+        return;
+      }
+
+      lufsAnalyzeBtn.disabled = true;
+      lufsAnalyzeBtn.textContent = "Analyzing…";
+
+      try {
+        const result = await analyzeAudio(track.audioUrl);
+        state.trackMenu.lufs = result.lufs;
+        state.trackMenu.peakDb = result.peakDb;
+        state.trackMenu.bpm = result.bpm ?? state.trackMenu.bpm;
+        state.trackMenu.key = result.key ?? state.trackMenu.key;
+        renderTrackMenuPhase2();
+        showToast("Audio analysis complete");
+      } catch (error) {
+        showToast(error.message || "Analysis failed");
+      } finally {
+        const btn = document.getElementById("track-lufs-analyze");
+        if (btn) btn.disabled = false;
+        renderLufsDisplay();
+      }
+    });
+  }
+
+  // Track status color update on change
+  const trackStatusSelect = document.getElementById("track-status-select");
+  if (trackStatusSelect && canEdit) {
+    trackStatusSelect.addEventListener("change", () => {
+      updateTrackStatusSelectColor(trackStatusSelect);
+    });
+  }
+
+  // Camelot badge live update on key change
+  const trackKeySelect = document.getElementById("track-key-select");
+  if (trackKeySelect) {
+    trackKeySelect.addEventListener("change", () => {
+      const camelotBadgeEl = document.getElementById("track-camelot-badge");
+      if (!camelotBadgeEl) return;
+      const code = trackKeySelect.value ? CAMELOT_MAP[trackKeySelect.value] : null;
+      const color = code ? (CAMELOT_COLORS[code] || "#888") : null;
+      if (code && color) {
+        camelotBadgeEl.textContent = code;
+        camelotBadgeEl.style.cssText = `background:${color}26;color:${color};border-color:${color}55`;
+        camelotBadgeEl.hidden = false;
+      } else {
+        camelotBadgeEl.hidden = true;
       }
     });
   }
@@ -2500,6 +3006,24 @@ function projectTrackHtml(track, listIndex) {
     );
   }
 
+  // Phase 2 inline badges
+  const trackStatusColor = track.trackStatus ? (TRACK_STATUS_COLORS[track.trackStatus] || "") : "";
+  const trackStatusBadge = track.trackStatus
+    ? `<span class="track-status-pill" style="background:${trackStatusColor}22;color:${trackStatusColor};border-color:${trackStatusColor}55">${escapeHtml(track.trackStatus)}</span>`
+    : "";
+
+  const moodChipsHtml = Array.isArray(track.moodTags) && track.moodTags.length
+    ? track.moodTags.map((tag) => {
+        const c = MOOD_TAG_COLORS[tag] || "#555";
+        return `<span class="track-mood-chip" style="background:${c}22;color:${c};border-color:${c}55">${escapeHtml(tag)}</span>`;
+      }).join("")
+    : "";
+
+  const inlineMeta = [];
+  if (track.bpm) inlineMeta.push(`<span class="track-inline-meta">${escapeHtml(String(track.bpm))} BPM</span>`);
+  if (track.key) inlineMeta.push(`${camelotBadgeHtml(track.key)}<span class="track-inline-meta">${escapeHtml(track.key)}</span>`);
+  if (track.listenCount) inlineMeta.push(`<span class="track-inline-meta">${escapeHtml(String(track.listenCount))} plays</span>`);
+
   return `
     <article class="track-row" data-track-id="${escapeHtml(track.id)}" draggable="${canReorder ? "true" : "false"}">
       <div class="track-index drag-handle" title="Drag to reorder">${listIndex + 1}</div>
@@ -2518,9 +3042,15 @@ function projectTrackHtml(track, listIndex) {
         <div class="track-meta-line">
           <span class="track-date">${escapeHtml(createdOn)}</span>
           <span class="track-file-name">${escapeHtml(track.originalName || activeVersion?.originalName || "")}</span>
+          ${inlineMeta.join("")}
         </div>
 
-        <div class="track-badges">${badges.join("")}</div>
+        ${moodChipsHtml ? `<div class="track-mood-chips-row">${moodChipsHtml}</div>` : ""}
+
+        <div class="track-bottom-row">
+          <div class="track-badges">${badges.join("")}</div>
+          ${trackStatusBadge}
+        </div>
       </div>
       <button class="icon-button track-play-button" type="button" data-play-track="${escapeHtml(track.id)}" title="Play track" ${canListen ? "" : "disabled"}>${icon("play")}</button>
       <button class="icon-button track-menu-button" type="button" data-track-menu="${escapeHtml(track.id)}" title="Track options">${icon("more")}</button>
@@ -2698,6 +3228,50 @@ function renderProjectView() {
             </div>
             <input id="track-version-input" type="file" hidden accept=".wav,.mp3,.flac" />
             <div id="track-version-list" class="track-version-list"></div>
+          </div>
+
+          <div class="track-menu-field track-meta-row">
+            <div class="track-meta-col">
+              <label for="track-bpm-input">BPM</label>
+              <input id="track-bpm-input" class="track-num-input" type="number" min="1" max="999" placeholder="—" ${canEdit ? "" : "disabled"} />
+            </div>
+            <div class="track-meta-col">
+              <label for="track-key-select">Key</label>
+              <div class="track-key-row">
+                <select id="track-key-select" class="track-key-select" ${canEdit ? "" : "disabled"}>
+                  <option value="">—</option>
+                  ${MUSICAL_KEYS.map((k) => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("")}
+                </select>
+                <span id="track-camelot-badge" class="camelot-badge" hidden></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="track-menu-field track-meta-row">
+            <div class="track-meta-col">
+              <label for="track-status-select">Status</label>
+              <select id="track-status-select" class="track-status-select" ${canEdit ? "" : "disabled"}>
+                <option value="">—</option>
+                ${TRACK_STATUS_OPTIONS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="track-meta-col track-meta-col-wide">
+              <label>Play Count</label>
+              <span id="track-listen-count" class="track-listen-count">Played 0 times</span>
+            </div>
+          </div>
+
+          <div class="track-menu-field">
+            <label>Mood Tags</label>
+            <div id="track-mood-tags" class="mood-tags-wrap"></div>
+          </div>
+
+          <div class="track-menu-field">
+            <div class="track-menu-todo-head">
+              <label>Analysis</label>
+              <button id="track-lufs-analyze" class="secondary-button track-menu-todo-add" type="button" ${canEdit ? "" : "disabled"}>Analyze</button>
+            </div>
+            <div id="track-lufs-display" class="lufs-display"></div>
           </div>
 
           <div class="track-menu-field">

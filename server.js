@@ -22,6 +22,22 @@ const COVERS_DIR = path.join(FILES_DIR, "covers");
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const STATUS_OPTIONS = ["In Progress", "Mastering", "Done"];
+const TRACK_STATUS_OPTIONS = ["Idea", "Demo", "Recording", "Mixing", "Mastering", "Done"];
+const MOOD_TAG_OPTIONS = ["Dark", "Energetic", "Melancholic", "Hype", "Chill", "Aggressive", "Euphoric", "Nostalgic"];
+const MUSICAL_KEYS = [
+  "C Major", "C Minor",
+  "C# Major", "C# Minor",
+  "D Major", "D Minor",
+  "D# Major", "D# Minor",
+  "E Major", "E Minor",
+  "F Major", "F Minor",
+  "F# Major", "F# Minor",
+  "G Major", "G Minor",
+  "G# Major", "G# Minor",
+  "A Major", "A Minor",
+  "A# Major", "A# Minor",
+  "B Major", "B Minor",
+];
 const ALLOWED_AUDIO_EXTENSIONS = new Set([".wav", ".mp3", ".flac"]);
 const ALLOWED_IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp"]);
 const SHARE_ACCESS_OPTIONS = new Set(["view", "listen", "edit"]);
@@ -119,6 +135,63 @@ function parseStarRating(value) {
   }
 
   return Math.max(0, Math.min(5, Math.round(parsed)));
+}
+
+function parseBpm(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 999) {
+    return null;
+  }
+
+  return Math.round(parsed);
+}
+
+function parseTrackStatus(value) {
+  if (TRACK_STATUS_OPTIONS.includes(value)) {
+    return value;
+  }
+
+  return null;
+}
+
+function parseMoodTags(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((tag) => MOOD_TAG_OPTIONS.includes(tag))
+    .slice(0, MOOD_TAG_OPTIONS.length);
+}
+
+function parseListenCount(value) {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return Math.floor(parsed);
+}
+
+function parseLufsValue(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  return Math.round(parsed * 10) / 10;
 }
 
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
@@ -437,6 +510,42 @@ function normalizeTrack(track, fallbackTimestamp) {
     changed = true;
   }
 
+  // Phase 2 track-level metadata fields
+  if (!Object.prototype.hasOwnProperty.call(track, "bpm")) {
+    track.bpm = null;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "key")) {
+    track.key = null;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "trackStatus")) {
+    track.trackStatus = null;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "moodTags")) {
+    track.moodTags = [];
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "listenCount")) {
+    track.listenCount = 0;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "lufs")) {
+    track.lufs = null;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(track, "peakDb")) {
+    track.peakDb = null;
+    changed = true;
+  }
+
   applyActiveTrackVersion(track);
   return changed;
 }
@@ -728,6 +837,13 @@ function toTrackResponse(track, projectId, shareLink) {
     sizeBytes: parseSize(track.sizeBytes),
     versionCount: versions.length,
     activeVersionId: track.activeVersionId || null,
+    bpm: track.bpm ?? null,
+    key: track.key || null,
+    trackStatus: track.trackStatus || null,
+    moodTags: Array.isArray(track.moodTags) ? track.moodTags : [],
+    listenCount: parseListenCount(track.listenCount),
+    lufs: parseLufsValue(track.lufs),
+    peakDb: parseLufsValue(track.peakDb),
     versions: versions.map((version) => ({
       id: version.id,
       originalName: version.originalName || "",
@@ -1149,6 +1265,31 @@ function applyTrackFields(track, body, res) {
     track.trackNumber = parsedNumber;
   }
 
+  if (Object.prototype.hasOwnProperty.call(body || {}, "bpm")) {
+    track.bpm = parseBpm(body.bpm);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body || {}, "key")) {
+    const keyValue = safeString(String(body.key || ""), 40);
+    track.key = MUSICAL_KEYS.includes(keyValue) ? keyValue : null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body || {}, "trackStatus")) {
+    track.trackStatus = parseTrackStatus(body.trackStatus);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body || {}, "moodTags")) {
+    track.moodTags = parseMoodTags(body.moodTags);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body || {}, "lufs")) {
+    track.lufs = parseLufsValue(body.lufs);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(body || {}, "peakDb")) {
+    track.peakDb = parseLufsValue(body.peakDb);
+  }
+
   return true;
 }
 
@@ -1563,6 +1704,13 @@ projectsRouter.post(
           notes: "",
           lyrics: "",
           todos: [],
+          bpm: null,
+          key: null,
+          trackStatus: null,
+          moodTags: [],
+          listenCount: 0,
+          lufs: null,
+          peakDb: null,
           order: baseOrder + index,
           createdAt: timestamp,
           updatedAt: timestamp,
@@ -1647,6 +1795,29 @@ projectsRouter.patch("/:projectId/tracks/:trackId", (req, res) => {
   writeDatabase(database);
 
   res.json({ project: toProjectDetails(project) });
+});
+
+projectsRouter.post("/:projectId/tracks/:trackId/play", (req, res) => {
+  const database = readDatabase();
+  const project = findProjectById(database, req.params.projectId);
+
+  if (!project) {
+    res.status(404).json({ error: "Project not found" });
+    return;
+  }
+
+  const track = findTrack(project, req.params.trackId);
+  if (!track) {
+    res.status(404).json({ error: "Track not found" });
+    return;
+  }
+
+  track.listenCount = parseListenCount(track.listenCount) + 1;
+  track.updatedAt = nowIso();
+  project.updatedAt = track.updatedAt;
+  writeDatabase(database);
+
+  res.json({ listenCount: track.listenCount });
 });
 
 projectsRouter.post(
@@ -1927,6 +2098,31 @@ app.patch("/api/share/:token/tracks/:trackId", (req, res) => {
   writeDatabase(database);
 
   res.json({ project: toProjectDetails(project, shareLink) });
+});
+
+app.post("/api/share/:token/tracks/:trackId/play", (req, res) => {
+  const context = resolveShareRequest(req, res);
+  if (!context) {
+    return;
+  }
+
+  const { database, project, shareLink } = context;
+  if (!requireSharePermission(shareLink, "listen", res)) {
+    return;
+  }
+
+  const track = findTrack(project, req.params.trackId);
+  if (!track) {
+    res.status(404).json({ error: "Track not found" });
+    return;
+  }
+
+  track.listenCount = parseListenCount(track.listenCount) + 1;
+  track.updatedAt = nowIso();
+  project.updatedAt = track.updatedAt;
+  writeDatabase(database);
+
+  res.json({ listenCount: track.listenCount });
 });
 
 app.delete("/api/share/:token/tracks/:trackId", (req, res) => {
