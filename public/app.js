@@ -65,6 +65,8 @@ const ICON_SVG = {
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>',
   metadata:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"></path></svg>',
+  sort:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="6" y1="12" x2="18" y2="12"></line><line x1="9" y1="18" x2="15" y2="18"></line></svg>',
 };
 
 const state = {
@@ -94,6 +96,10 @@ const state = {
   },
   metadataPanel: {
     colorPalette: [],
+  },
+  homeSort: {
+    key: "updatedAt",   // updatedAt | createdAt | title | artist | status | completionPercent | starRating | releaseDate | startDate
+    dir: "desc",        // asc | desc
   },
 };
 
@@ -499,6 +505,7 @@ function projectSummaryFromDetails(project) {
     shareLinks: Array.isArray(project.shareLinks) ? project.shareLinks : [],
     completionPercent: project.completionPercent || 0,
     starRating: project.starRating || 0,
+    startDate: project.startDate || null,
     releaseDate: project.releaseDate || null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
@@ -1797,6 +1804,205 @@ function buildColorPaletteSwatchesHtml(colors) {
     .join("");
 }
 
+// ─── Custom Date Picker ────────────────────────────────────────────────────
+// DatePicker.open(anchorEl, initialValue, onChange, opts)
+//   anchorEl     – element to position next to
+//   initialValue – "YYYY-MM-DD" or null
+//   onChange     – callback(valueStr)  valueStr = "YYYY-MM-DD" or ""
+//   opts         – { label }
+
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const DAY_NAMES   = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+class DatePicker {
+  static _instance = null;
+
+  static open(anchorEl, initialValue, onChange, opts = {}) {
+    DatePicker.close();
+    const picker = new DatePicker(anchorEl, initialValue, onChange, opts);
+    DatePicker._instance = picker;
+    picker._mount();
+  }
+
+  static close() {
+    if (DatePicker._instance) {
+      DatePicker._instance._destroy();
+      DatePicker._instance = null;
+    }
+  }
+
+  constructor(anchorEl, initialValue, onChange, opts) {
+    this._anchor = anchorEl;
+    this._onChange = onChange;
+    this._label = opts.label || "";
+
+    // parse initial date or default to today
+    const parsed = DatePicker._parseValue(initialValue);
+    const ref = parsed || new Date();
+    this._year  = ref.getFullYear();
+    this._month = ref.getMonth();   // 0-based
+    this._day   = parsed ? ref.getDate() : null;
+
+    this._el = null;
+    this._boundKeydown      = this._onKeydown.bind(this);
+    this._boundOutsideClick = this._onOutsideClick.bind(this);
+  }
+
+  // ── public ────────────────────────────────────────────────────────────────
+
+  _mount() {
+    const el = document.createElement("div");
+    el.className = "dp-popover";
+    document.body.appendChild(el);
+    this._el = el;
+    this._render();
+    this._position();
+    this._anchor.classList.add("dp-open");
+    document.addEventListener("keydown", this._boundKeydown);
+    setTimeout(() => document.addEventListener("pointerdown", this._boundOutsideClick), 0);
+  }
+
+  _render() {
+    const el = this._el;
+    const y = this._year;
+    const m = this._month;
+
+    const firstDay = new Date(y, m, 1).getDay(); // 0=Sun
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+
+    // Build day cells
+    let cells = "";
+    for (let i = 0; i < firstDay; i++) {
+      cells += `<span class="dp-cell dp-blank"></span>`;
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const isSelected = (this._day === d);
+      const today = new Date();
+      const isToday = (today.getFullYear() === y && today.getMonth() === m && today.getDate() === d);
+      cells += `<button class="dp-cell dp-day${isSelected ? " dp-selected" : ""}${isToday ? " dp-today" : ""}" type="button" data-day="${d}">${d}</button>`;
+    }
+
+    el.innerHTML = `
+      <div class="dp-header">
+        <button class="dp-nav-btn" type="button" data-dp-prev aria-label="Previous month">‹</button>
+        <span class="dp-month-label">${MONTH_NAMES[m]} ${y}</span>
+        <button class="dp-nav-btn" type="button" data-dp-next aria-label="Next month">›</button>
+      </div>
+      <div class="dp-day-names">
+        ${DAY_NAMES.map((n) => `<span class="dp-day-name">${n}</span>`).join("")}
+      </div>
+      <div class="dp-grid">${cells}</div>
+      <div class="dp-footer">
+        ${this._day !== null ? `<button class="dp-clear-btn" type="button">Clear</button>` : ""}
+        <button class="dp-today-btn" type="button">Today</button>
+      </div>
+    `;
+
+    this._bindEvents();
+  }
+
+  _bindEvents() {
+    const el = this._el;
+
+    el.querySelector("[data-dp-prev]").addEventListener("click", () => {
+      this._month--;
+      if (this._month < 0) { this._month = 11; this._year--; }
+      this._render();
+    });
+
+    el.querySelector("[data-dp-next]").addEventListener("click", () => {
+      this._month++;
+      if (this._month > 11) { this._month = 0; this._year++; }
+      this._render();
+    });
+
+    el.querySelectorAll(".dp-day").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        this._day = Number(btn.dataset.day);
+        this._commitAndClose();
+      });
+    });
+
+    const clearBtn = el.querySelector(".dp-clear-btn");
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        this._day = null;
+        if (this._onChange) this._onChange("");
+        DatePicker.close();
+      });
+    }
+
+    el.querySelector(".dp-today-btn").addEventListener("click", () => {
+      const t = new Date();
+      this._year  = t.getFullYear();
+      this._month = t.getMonth();
+      this._day   = t.getDate();
+      this._commitAndClose();
+    });
+  }
+
+  _commitAndClose() {
+    if (this._day !== null && this._onChange) {
+      const mm = String(this._month + 1).padStart(2, "0");
+      const dd = String(this._day).padStart(2, "0");
+      this._onChange(`${this._year}-${mm}-${dd}`);
+    }
+    DatePicker.close();
+  }
+
+  _position() {
+    const el = this._el;
+    const rect = this._anchor.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pw = el.offsetWidth || 240;
+    const ph = el.offsetHeight || 300;
+
+    let top  = rect.bottom + 8;
+    let left = rect.left;
+
+    if (top + ph > vh - 12) top = rect.top - ph - 8;
+    if (left + pw > vw - 12) left = vw - pw - 12;
+    if (left < 8) left = 8;
+
+    el.style.top  = top  + "px";
+    el.style.left = left + "px";
+  }
+
+  _onKeydown(e) {
+    if (e.key === "Escape") DatePicker.close();
+  }
+
+  _onOutsideClick(e) {
+    if (this._el && !this._el.contains(e.target) && e.target !== this._anchor) {
+      DatePicker.close();
+    }
+  }
+
+  _destroy() {
+    document.removeEventListener("keydown", this._boundKeydown);
+    document.removeEventListener("pointerdown", this._boundOutsideClick);
+    if (this._anchor) this._anchor.classList.remove("dp-open");
+    if (this._el && this._el.parentNode) this._el.parentNode.removeChild(this._el);
+    this._el = null;
+  }
+
+  // ── helpers ───────────────────────────────────────────────────────────────
+
+  static _parseValue(value) {
+    if (!value) return null;
+    const d = new Date(value + "T00:00:00");
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  static formatDisplay(value) {
+    const d = DatePicker._parseValue(value);
+    if (!d) return "Set date…";
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+}
+// ─── end DatePicker ────────────────────────────────────────────────────────
+
 // ─── Custom Color Picker ───────────────────────────────────────────────────
 class ColorPicker {
   // Public API: ColorPicker.open(anchorEl, initialHex, onApply)
@@ -2078,8 +2284,53 @@ function buildColorPalettePickerHtml(colors, canEdit) {
   return swatches + addBtn;
 }
 
+// Sort options available on the home page
+const HOME_SORT_OPTIONS = [
+  { key: "updatedAt",        label: "Last Modified",    dir: "desc" },
+  { key: "createdAt",        label: "Date Created",     dir: "desc" },
+  { key: "title",            label: "Title A→Z",        dir: "asc"  },
+  { key: "artist",           label: "Artist A→Z",       dir: "asc"  },
+  { key: "status",           label: "Status",           dir: "asc"  },
+  { key: "completionPercent",label: "% Complete",       dir: "desc" },
+  { key: "starRating",       label: "Star Rating",      dir: "desc" },
+  { key: "releaseDate",      label: "Release Date",     dir: "asc"  },
+  { key: "startDate",        label: "Start Date",       dir: "asc"  },
+];
+
+function sortedProjects() {
+  const { key, dir } = state.homeSort;
+  const list = [...state.projects];
+  list.sort((a, b) => {
+    let av = a[key];
+    let bv = b[key];
+
+    // treat null / undefined / "" as sort-last regardless of direction
+    const aNull = av == null || av === "";
+    const bNull = bv == null || bv === "";
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+
+    // numeric
+    if (typeof av === "number" && typeof bv === "number") {
+      return dir === "asc" ? av - bv : bv - av;
+    }
+    // string / date (ISO strings sort lexicographically correctly)
+    av = String(av).toLowerCase();
+    bv = String(bv).toLowerCase();
+    if (av < bv) return dir === "asc" ? -1 : 1;
+    if (av > bv) return dir === "asc" ? 1 : -1;
+    return 0;
+  });
+  return list;
+}
+
 function renderHomeView() {
-  const cards = state.projects
+  const sorted = sortedProjects();
+  const activeSortOption = HOME_SORT_OPTIONS.find((o) => o.key === state.homeSort.key);
+  const activeSortLabel = activeSortOption ? activeSortOption.label : "Sort";
+
+  const cards = sorted
     .map((project) => {
       const trackLabel =
         project.trackCount === 1
@@ -2106,6 +2357,11 @@ function renderHomeView() {
     })
     .join("");
 
+  const sortMenuItems = HOME_SORT_OPTIONS.map((opt) => {
+    const isActive = opt.key === state.homeSort.key;
+    return `<button class="sort-menu-item${isActive ? " sort-menu-item--active" : ""}" type="button" data-sort-key="${opt.key}" data-sort-dir="${opt.dir}">${opt.label}${isActive ? (state.homeSort.dir === "asc" ? " ↑" : " ↓") : ""}</button>`;
+  }).join("");
+
   appRoot.innerHTML = `
     <section class="view home-view">
       <header class="topbar">
@@ -2118,6 +2374,14 @@ function renderHomeView() {
 
       <section class="home-actions">
         <button id="create-project-button" class="primary-button" type="button">New Project</button>
+        <div class="sort-wrap">
+          <button id="sort-button" class="sort-button" type="button" aria-haspopup="true" aria-expanded="false">
+            ${icon("sort")} ${escapeHtml(activeSortLabel)}
+          </button>
+          <div id="sort-menu" class="sort-menu hidden">
+            ${sortMenuItems}
+          </div>
+        </div>
       </section>
 
       <section class="project-grid">
@@ -2160,6 +2424,41 @@ function renderHomeView() {
         showToast(error.message || "Failed to create project");
       }
     });
+
+  // Sort button + menu
+  const sortBtn  = document.getElementById("sort-button");
+  const sortMenu = document.getElementById("sort-menu");
+
+  sortBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = !sortMenu.classList.contains("hidden");
+    sortMenu.classList.toggle("hidden", isOpen);
+    sortBtn.setAttribute("aria-expanded", String(!isOpen));
+  });
+
+  sortMenu.querySelectorAll(".sort-menu-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const newKey = item.dataset.sortKey;
+      const defaultDir = item.dataset.sortDir;
+      if (state.homeSort.key === newKey) {
+        // same key → flip direction
+        state.homeSort.dir = state.homeSort.dir === "asc" ? "desc" : "asc";
+      } else {
+        state.homeSort.key = newKey;
+        state.homeSort.dir = defaultDir;
+      }
+      renderHomeView();
+    });
+  });
+
+  // close sort menu on outside click
+  document.addEventListener("click", function closeSortMenu(e) {
+    if (!sortBtn.contains(e.target)) {
+      sortMenu.classList.add("hidden");
+      sortBtn.setAttribute("aria-expanded", "false");
+      document.removeEventListener("click", closeSortMenu);
+    }
+  });
 
   appRoot.querySelectorAll("[data-open-project]").forEach((card) => {
     card.addEventListener("click", () => {
@@ -2479,10 +2778,20 @@ function renderProjectView() {
           </header>
           <div class="panel-body">
 
-            <div class="meta-section">
-              <label class="meta-section-label" for="meta-release-date">Release Date</label>
-              <input type="date" id="meta-release-date" class="metadata-date-input" value="${escapeHtml(project.releaseDate || "")}" ${canEdit ? "" : "disabled"} />
-              <div id="meta-deadline-countdown" class="deadline-countdown${project.releaseDate ? "" : " hidden"}">${project.releaseDate ? buildDeadlineCountdownHtml(project.releaseDate) : ""}</div>
+            <div class="meta-section meta-dates-row">
+              <div class="meta-date-field">
+                <label class="meta-section-label">Start Date</label>
+                <button id="meta-start-date-btn" class="dp-trigger-btn${canEdit ? "" : " dp-trigger-btn--readonly"}" type="button" data-value="${escapeHtml(project.startDate || "")}" ${canEdit ? "" : "disabled"}>
+                  ${DatePicker.formatDisplay(project.startDate)}
+                </button>
+              </div>
+              <div class="meta-date-field">
+                <label class="meta-section-label">Release Date</label>
+                <button id="meta-release-date-btn" class="dp-trigger-btn${canEdit ? "" : " dp-trigger-btn--readonly"}" type="button" data-value="${escapeHtml(project.releaseDate || "")}" ${canEdit ? "" : "disabled"}>
+                  ${DatePicker.formatDisplay(project.releaseDate)}
+                </button>
+                <div id="meta-deadline-countdown" class="deadline-countdown${project.releaseDate ? "" : " hidden"}">${project.releaseDate ? buildDeadlineCountdownHtml(project.releaseDate) : ""}</div>
+              </div>
             </div>
 
             <div class="meta-section">
@@ -2566,7 +2875,6 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
   const panel = document.getElementById("metadata-panel");
   const closeBtn = document.getElementById("metadata-panel-close");
   const openBtn = document.getElementById("open-metadata-button");
-  const releaseDateInput = document.getElementById("meta-release-date");
   const completionRange = document.getElementById("meta-completion-range");
   const completionNum = document.getElementById("meta-completion-num");
   const completionDisplay = document.getElementById("meta-completion-display");
@@ -2578,6 +2886,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
 
   function closePanel() {
     ColorPicker.close();
+    DatePicker.close();
     animatedClose(panel);
   }
 
@@ -2597,11 +2906,23 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
 
   if (!canEdit) return;
 
+  // Date picker buttons
+  function bindDateBtn(btnId, onCommit) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      DatePicker.open(btn, btn.dataset.value || "", (val) => {
+        btn.dataset.value = val;
+        btn.textContent = DatePicker.formatDisplay(val);
+        onCommit(val);
+      });
+    });
+  }
+
   // Deadline countdown live update
-  function updateDeadlineCountdown() {
+  function updateDeadlineCountdown(val) {
     const countdownEl = document.getElementById("meta-deadline-countdown");
     if (!countdownEl) return;
-    const val = releaseDateInput ? releaseDateInput.value : "";
     if (!val) {
       countdownEl.classList.add("hidden");
       countdownEl.innerHTML = "";
@@ -2611,9 +2932,8 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
     countdownEl.innerHTML = buildDeadlineCountdownHtml(val);
   }
 
-  if (releaseDateInput) {
-    releaseDateInput.addEventListener("change", updateDeadlineCountdown);
-  }
+  bindDateBtn("meta-start-date-btn", () => {});
+  bindDateBtn("meta-release-date-btn", updateDeadlineCountdown);
 
   // Completion slider ↔ number input sync
   if (completionRange && completionNum && completionDisplay) {
@@ -2704,7 +3024,8 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
   // Save
   if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
-      const releaseDateVal = releaseDateInput ? releaseDateInput.value : "";
+      const startDateVal   = document.getElementById("meta-start-date-btn")?.dataset.value   || "";
+      const releaseDateVal = document.getElementById("meta-release-date-btn")?.dataset.value || "";
       const completionVal = completionRange
         ? Math.max(0, Math.min(100, Math.round(Number(completionRange.value) || 0)))
         : 0;
@@ -2721,6 +3042,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
 
       try {
         await saveProject({
+          startDate: startDateVal || null,
           releaseDate: releaseDateVal || null,
           completionPercent: completionVal,
           starRating: starVal,

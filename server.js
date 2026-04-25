@@ -598,6 +598,11 @@ function normalizeProject(project) {
   }
 
   // Phase 1 metadata fields — initialize with defaults if missing
+  if (!Object.prototype.hasOwnProperty.call(project, "startDate")) {
+    project.startDate = null;
+    changed = true;
+  }
+
   if (!Object.prototype.hasOwnProperty.call(project, "releaseDate")) {
     project.releaseDate = null;
     changed = true;
@@ -766,6 +771,7 @@ function toProjectSummary(project) {
     shareLinks: (project.shareLinks || []).map(toShareLinkPayload),
     completionPercent: project.completionPercent || 0,
     starRating: project.starRating || 0,
+    startDate: project.startDate || null,
     releaseDate: project.releaseDate || null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
@@ -809,6 +815,7 @@ function toProjectDetails(project, shareLink = null) {
       ? []
       : (project.shareLinks || []).map(toShareLinkPayload),
     totalRuntimeSeconds: getProjectRuntimeSeconds(project),
+    startDate: project.startDate || null,
     releaseDate: project.releaseDate || null,
     completionPercent: project.completionPercent || 0,
     starRating: project.starRating || 0,
@@ -1191,6 +1198,7 @@ projectsRouter.post("/", (req, res) => {
     shareToken: null,
     shareLinks: [],
     tracks: [],
+    startDate: null,
     releaseDate: null,
     completionPercent: 0,
     starRating: 0,
@@ -1251,6 +1259,10 @@ projectsRouter.patch("/:projectId", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "releaseDate")) {
     project.releaseDate = parseReleaseDate(req.body.releaseDate);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "startDate")) {
+    project.startDate = parseReleaseDate(req.body.startDate);
   }
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "completionPercent")) {
@@ -1853,6 +1865,10 @@ app.patch("/api/share/:token/project", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "releaseDate")) {
     project.releaseDate = parseReleaseDate(req.body.releaseDate);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "startDate")) {
+    project.startDate = parseReleaseDate(req.body.startDate);
   }
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "completionPercent")) {

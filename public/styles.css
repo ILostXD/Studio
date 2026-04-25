@@ -236,10 +236,6 @@ textarea {
   background: rgba(255, 95, 120, 0.2);
 }
 
-.home-actions {
-  margin-bottom: 18px;
-}
-
 .project-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -2809,4 +2805,254 @@ textarea {
   padding-top: 16px;
   display: flex;
   justify-content: flex-end;
+}
+
+/* ── Custom date picker trigger button ─────────────────────────────────── */
+.dp-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  background: #1a1a1a;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.dp-trigger-btn:hover {
+  border-color: var(--accent);
+  background: #222;
+}
+
+.dp-trigger-btn.dp-open,
+.dp-trigger-btn:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.dp-trigger-btn--readonly {
+  opacity: 0.55;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* two date fields side by side */
+.meta-dates-row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.meta-date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 130px;
+}
+
+/* ── Custom date picker popover ────────────────────────────────────────── */
+.dp-popover {
+  position: fixed;
+  z-index: 9999;
+  width: 248px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 14px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.7);
+  padding: 14px;
+  user-select: none;
+}
+
+.dp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.dp-nav-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.dp-nav-btn:hover {
+  background: #222;
+  color: var(--text);
+}
+
+.dp-month-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.dp-day-names {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 4px;
+}
+
+.dp-day-name {
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  padding: 2px 0;
+}
+
+.dp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.dp-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: var(--text);
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.dp-blank {
+  pointer-events: none;
+}
+
+.dp-day:hover {
+  background: #252525;
+}
+
+.dp-today {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.dp-selected {
+  background: var(--accent) !important;
+  color: #000 !important;
+  font-weight: 600;
+}
+
+.dp-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #222;
+}
+
+.dp-clear-btn,
+.dp-today-btn {
+  background: none;
+  border: 1px solid #2e2e2e;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease;
+}
+
+.dp-clear-btn:hover,
+.dp-today-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ── Home sort button + dropdown menu ──────────────────────────────────── */
+.home-actions {
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sort-wrap {
+  position: relative;
+}
+
+.sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  background: #111;
+  border: 1px solid #272727;
+  border-radius: 9px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  white-space: nowrap;
+}
+
+.sort-button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: #181818;
+}
+
+.sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 400;
+  background: #141414;
+  border: 1px solid #252525;
+  border-radius: 11px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+  min-width: 180px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sort-menu.hidden {
+  display: none;
+}
+
+.sort-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 11px;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 110ms ease, color 110ms ease;
+}
+
+.sort-menu-item:hover {
+  background: #222;
+  color: var(--text);
+}
+
+.sort-menu-item--active {
+  color: var(--accent);
+  font-weight: 500;
 }
