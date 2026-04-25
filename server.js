@@ -77,6 +77,109 @@ function parseSize(value) {
   return Math.floor(parsed);
 }
 
+function parseReleaseDate(value) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const str = safeString(String(value), 30);
+  if (!/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    return null;
+  }
+
+  const parsed = new Date(str);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return str.slice(0, 10);
+}
+
+function parseCompletionPercent(value) {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function parseStarRating(value) {
+  if (value === null || value === undefined || value === "") {
+    return 0;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(5, Math.round(parsed)));
+}
+
+const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function parseColorPalette(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (color) =>
+        typeof color === "string" && HEX_COLOR_RE.test(color.trim()),
+    )
+    .map((color) => color.trim().toLowerCase())
+    .slice(0, 5);
+}
+
+const STREAMING_PLATFORMS = [
+  "spotify",
+  "appleMusic",
+  "bandcamp",
+  "tidal",
+  "youtubeMusic",
+  "soundCloud",
+];
+
+function parseStreamingChecklist(value) {
+  const result = {};
+  for (const key of STREAMING_PLATFORMS) {
+    result[key] = false;
+  }
+
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return result;
+  }
+
+  for (const key of STREAMING_PLATFORMS) {
+    result[key] = Boolean(value[key]);
+  }
+
+  return result;
+}
+
+function safeUrl(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim().slice(0, 600);
+  if (!trimmed) {
+    return "";
+  }
+
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return "";
+  }
+
+  return trimmed;
+}
+
 async function extractDurationSeconds(absolutePath) {
   try {
     const metadata = await parseFile(absolutePath, { duration: true });
@@ -494,6 +597,42 @@ function normalizeProject(project) {
     changed = true;
   }
 
+  // Phase 1 metadata fields — initialize with defaults if missing
+  if (!Object.prototype.hasOwnProperty.call(project, "releaseDate")) {
+    project.releaseDate = null;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "completionPercent")) {
+    project.completionPercent = 0;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "starRating")) {
+    project.starRating = 0;
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "colorPalette")) {
+    project.colorPalette = [];
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "streamingChecklist")) {
+    project.streamingChecklist = parseStreamingChecklist({});
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "preSaveLink")) {
+    project.preSaveLink = "";
+    changed = true;
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(project, "distributorNotes")) {
+    project.distributorNotes = "";
+    changed = true;
+  }
+
   return changed;
 }
 
@@ -625,6 +764,9 @@ function toProjectSummary(project) {
     totalRuntimeSeconds: getProjectRuntimeSeconds(project),
     shareUrl: primaryShare ? `/share/${primaryShare.token}` : null,
     shareLinks: (project.shareLinks || []).map(toShareLinkPayload),
+    completionPercent: project.completionPercent || 0,
+    starRating: project.starRating || 0,
+    releaseDate: project.releaseDate || null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
@@ -667,6 +809,13 @@ function toProjectDetails(project, shareLink = null) {
       ? []
       : (project.shareLinks || []).map(toShareLinkPayload),
     totalRuntimeSeconds: getProjectRuntimeSeconds(project),
+    releaseDate: project.releaseDate || null,
+    completionPercent: project.completionPercent || 0,
+    starRating: project.starRating || 0,
+    colorPalette: Array.isArray(project.colorPalette) ? project.colorPalette : [],
+    streamingChecklist: project.streamingChecklist || parseStreamingChecklist({}),
+    preSaveLink: project.preSaveLink || "",
+    distributorNotes: project.distributorNotes || "",
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     tracks,
@@ -1042,6 +1191,13 @@ projectsRouter.post("/", (req, res) => {
     shareToken: null,
     shareLinks: [],
     tracks: [],
+    releaseDate: null,
+    completionPercent: 0,
+    starRating: 0,
+    colorPalette: [],
+    streamingChecklist: parseStreamingChecklist({}),
+    preSaveLink: "",
+    distributorNotes: "",
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -1091,6 +1247,34 @@ projectsRouter.patch("/:projectId", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "status")) {
     project.status = safeStatus(req.body.status);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "releaseDate")) {
+    project.releaseDate = parseReleaseDate(req.body.releaseDate);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "completionPercent")) {
+    project.completionPercent = parseCompletionPercent(req.body.completionPercent);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "starRating")) {
+    project.starRating = parseStarRating(req.body.starRating);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "colorPalette")) {
+    project.colorPalette = parseColorPalette(req.body.colorPalette);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "streamingChecklist")) {
+    project.streamingChecklist = parseStreamingChecklist(req.body.streamingChecklist);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "preSaveLink")) {
+    project.preSaveLink = safeUrl(req.body.preSaveLink);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "distributorNotes")) {
+    project.distributorNotes = safeString(req.body.distributorNotes, 4000);
   }
 
   project.updatedAt = nowIso();
@@ -1665,6 +1849,34 @@ app.patch("/api/share/:token/project", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "status")) {
     project.status = safeStatus(req.body.status);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "releaseDate")) {
+    project.releaseDate = parseReleaseDate(req.body.releaseDate);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "completionPercent")) {
+    project.completionPercent = parseCompletionPercent(req.body.completionPercent);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "starRating")) {
+    project.starRating = parseStarRating(req.body.starRating);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "colorPalette")) {
+    project.colorPalette = parseColorPalette(req.body.colorPalette);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "streamingChecklist")) {
+    project.streamingChecklist = parseStreamingChecklist(req.body.streamingChecklist);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "preSaveLink")) {
+    project.preSaveLink = safeUrl(req.body.preSaveLink);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "distributorNotes")) {
+    project.distributorNotes = safeString(req.body.distributorNotes, 4000);
   }
 
   project.updatedAt = nowIso();

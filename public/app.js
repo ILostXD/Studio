@@ -63,6 +63,8 @@ const ICON_SVG = {
   link: '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>',
   notes:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>',
+  metadata:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"></path></svg>',
 };
 
 const state = {
@@ -89,6 +91,9 @@ const state = {
     todos: [],
     versions: [],
     activeVersionId: null,
+  },
+  metadataPanel: {
+    colorPalette: [],
   },
 };
 
@@ -492,6 +497,9 @@ function projectSummaryFromDetails(project) {
     totalRuntimeSeconds: Number(project.totalRuntimeSeconds) || 0,
     shareUrl: project.shareUrl,
     shareLinks: Array.isArray(project.shareLinks) ? project.shareLinks : [],
+    completionPercent: project.completionPercent || 0,
+    starRating: project.starRating || 0,
+    releaseDate: project.releaseDate || null,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
@@ -1744,6 +1752,332 @@ function cardCoverHtml(project) {
   return `<img src="${escapeHtml(project.coverUrl)}" alt="Cover image" loading="lazy" />`;
 }
 
+function buildCardStarsHtml(rating) {
+  const filled = Math.max(0, Math.min(5, Math.round(rating)));
+  return Array.from({ length: 5 }, (_, i) =>
+    `<span class="card-star${i < filled ? " filled" : ""}" aria-hidden="true">★</span>`,
+  ).join("");
+}
+
+function buildDeadlineCountdownHtml(releaseDate) {
+  if (!releaseDate) return "";
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const target = new Date(releaseDate + "T00:00:00");
+  const diffMs = target - now;
+  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return `<span class="countdown-overdue">${Math.abs(diffDays)} days overdue</span>`;
+  }
+  if (diffDays === 0) {
+    return `<span class="countdown-red">Release day!</span>`;
+  }
+
+  let cls;
+  if (diffDays > 30) {
+    cls = "countdown-green";
+  } else if (diffDays > 7) {
+    cls = "countdown-yellow";
+  } else {
+    cls = "countdown-red";
+  }
+
+  return `<span class="${cls}">${diffDays} day${diffDays !== 1 ? "s" : ""} remaining</span>`;
+}
+
+function buildColorPaletteSwatchesHtml(colors) {
+  if (!Array.isArray(colors) || !colors.length) return "";
+  return colors
+    .map(
+      (color) =>
+        `<span class="project-palette-swatch" style="background:${escapeHtml(color)}" title="${escapeHtml(color)}"></span>`,
+    )
+    .join("");
+}
+
+// ─── Custom Color Picker ───────────────────────────────────────────────────
+class ColorPicker {
+  // Public API: ColorPicker.open(anchorEl, initialHex, onApply)
+  //   anchorEl  – element to position next to
+  //   initialHex – "#rrggbb" string
+  //   onApply   – callback(hex)
+
+  static _instance = null;
+
+  static open(anchorEl, initialHex, onApply) {
+    ColorPicker.close(); // close any existing picker
+    const picker = new ColorPicker(anchorEl, initialHex, onApply);
+    ColorPicker._instance = picker;
+    picker._mount();
+  }
+
+  static close() {
+    if (ColorPicker._instance) {
+      ColorPicker._instance._destroy();
+      ColorPicker._instance = null;
+    }
+  }
+
+  constructor(anchorEl, initialHex, onApply) {
+    this._anchor = anchorEl;
+    this._onApply = onApply;
+    // Parse initial hex to HSV
+    const { h, s, v } = ColorPicker._hexToHsv(initialHex || "#a89eff");
+    this._h = h; // 0–360
+    this._s = s; // 0–1
+    this._v = v; // 0–1
+    this._el = null;
+    this._draggingGradient = false;
+    this._draggingHue = false;
+    this._boundKeydown = this._onKeydown.bind(this);
+    this._boundOutsideClick = this._onOutsideClick.bind(this);
+  }
+
+  _mount() {
+    const el = document.createElement("div");
+    el.className = "cp-popover";
+    el.innerHTML = this._buildHtml();
+    document.body.appendChild(el);
+    this._el = el;
+
+    this._position();
+    this._update();
+    this._bindEvents();
+
+    // mark anchor
+    this._anchor.classList.add("cp-open");
+
+    document.addEventListener("keydown", this._boundKeydown);
+    // defer outside-click so the opening click doesn't immediately close it
+    setTimeout(() => document.addEventListener("pointerdown", this._boundOutsideClick), 0);
+  }
+
+  _buildHtml() {
+    return `
+      <div class="cp-gradient-box">
+        <div class="cp-gradient-cursor"></div>
+      </div>
+      <div class="cp-hue-track">
+        <div class="cp-slider-thumb"></div>
+      </div>
+      <div class="cp-bottom-row">
+        <div class="cp-preview"></div>
+        <input class="cp-hex-input" type="text" maxlength="7" spellcheck="false" value="" />
+      </div>
+      <div class="cp-actions">
+        <button class="cp-btn cp-btn-cancel" type="button">Cancel</button>
+        <button class="cp-btn cp-btn-apply" type="button">Apply</button>
+      </div>
+    `;
+  }
+
+  _position() {
+    const el = this._el;
+    const rect = this._anchor.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const pw = el.offsetWidth || 224;
+    const ph = el.offsetHeight || 300;
+
+    let top = rect.bottom + 8;
+    let left = rect.left;
+
+    // flip up if no room below
+    if (top + ph > vh - 12) top = rect.top - ph - 8;
+    // clamp horizontally
+    if (left + pw > vw - 12) left = vw - pw - 12;
+    if (left < 8) left = 8;
+
+    el.style.top = top + "px";
+    el.style.left = left + "px";
+  }
+
+  _update() {
+    const el = this._el;
+    if (!el) return;
+
+    const hex = ColorPicker._hsvToHex(this._h, this._s, this._v);
+    const hueHex = ColorPicker._hsvToHex(this._h, 1, 1);
+
+    // gradient box background = pure hue
+    const gradBox = el.querySelector(".cp-gradient-box");
+    gradBox.style.background = hueHex;
+
+    // cursor position
+    const cursor = el.querySelector(".cp-gradient-cursor");
+    cursor.style.left = (this._s * 100) + "%";
+    cursor.style.top = ((1 - this._v) * 100) + "%";
+
+    // hue thumb
+    const hueThumb = el.querySelector(".cp-hue-track .cp-slider-thumb");
+    hueThumb.style.left = (this._h / 360 * 100) + "%";
+
+    // preview + hex input
+    el.querySelector(".cp-preview").style.background = hex;
+    const hexInput = el.querySelector(".cp-hex-input");
+    if (document.activeElement !== hexInput) {
+      hexInput.value = hex.toUpperCase();
+    }
+  }
+
+  _bindEvents() {
+    const el = this._el;
+    const gradBox = el.querySelector(".cp-gradient-box");
+    const hueTrack = el.querySelector(".cp-hue-track");
+    const hexInput = el.querySelector(".cp-hex-input");
+
+    // gradient box — pointer drag
+    gradBox.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      this._draggingGradient = true;
+      gradBox.setPointerCapture(e.pointerId);
+      this._updateFromGradientEvent(e, gradBox);
+    });
+    gradBox.addEventListener("pointermove", (e) => {
+      if (!this._draggingGradient) return;
+      this._updateFromGradientEvent(e, gradBox);
+    });
+    gradBox.addEventListener("pointerup", () => { this._draggingGradient = false; });
+
+    // hue track — pointer drag
+    hueTrack.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      this._draggingHue = true;
+      hueTrack.setPointerCapture(e.pointerId);
+      this._updateFromHueEvent(e, hueTrack);
+    });
+    hueTrack.addEventListener("pointermove", (e) => {
+      if (!this._draggingHue) return;
+      this._updateFromHueEvent(e, hueTrack);
+    });
+    hueTrack.addEventListener("pointerup", () => { this._draggingHue = false; });
+
+    // hex input
+    hexInput.addEventListener("input", () => {
+      const raw = hexInput.value.trim();
+      const cleaned = raw.startsWith("#") ? raw : "#" + raw;
+      if (/^#[0-9a-fA-F]{6}$/.test(cleaned)) {
+        const { h, s, v } = ColorPicker._hexToHsv(cleaned);
+        this._h = h; this._s = s; this._v = v;
+        this._update();
+      }
+    });
+
+    // buttons
+    el.querySelector(".cp-btn-apply").addEventListener("click", () => {
+      this._apply();
+    });
+    el.querySelector(".cp-btn-cancel").addEventListener("click", () => {
+      ColorPicker.close();
+    });
+  }
+
+  _updateFromGradientEvent(e, gradBox) {
+    const rect = gradBox.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    this._s = x;
+    this._v = 1 - y;
+    this._update();
+  }
+
+  _updateFromHueEvent(e, hueTrack) {
+    const rect = hueTrack.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    this._h = x * 360;
+    this._update();
+  }
+
+  _apply() {
+    const hex = ColorPicker._hsvToHex(this._h, this._s, this._v);
+    if (this._onApply) this._onApply(hex);
+    ColorPicker.close();
+  }
+
+  _onKeydown(e) {
+    if (e.key === "Escape") { ColorPicker.close(); }
+    if (e.key === "Enter") { this._apply(); }
+  }
+
+  _onOutsideClick(e) {
+    if (this._el && !this._el.contains(e.target) && e.target !== this._anchor) {
+      ColorPicker.close();
+    }
+  }
+
+  _destroy() {
+    document.removeEventListener("keydown", this._boundKeydown);
+    document.removeEventListener("pointerdown", this._boundOutsideClick);
+    if (this._anchor) this._anchor.classList.remove("cp-open");
+    if (this._el && this._el.parentNode) this._el.parentNode.removeChild(this._el);
+    this._el = null;
+  }
+
+  // ── Color math helpers ────────────────────────────────────────────────────
+
+  static _hexToHsv(hex) {
+    // hex → rgb → hsv
+    const r = parseInt(hex.slice(1, 3), 16) / 255;
+    const g = parseInt(hex.slice(3, 5), 16) / 255;
+    const b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    const v = max;
+    const s = max === 0 ? 0 : d / max;
+    let h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (max === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: h * 360, s, v };
+  }
+
+  static _hsvToHex(h, s, v) {
+    // hsv → rgb → hex
+    const i = Math.floor((h / 60) % 6);
+    const f = h / 60 - Math.floor(h / 60);
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    let r, g, b;
+    switch (i) {
+      case 0: r = v; g = t; b = p; break;
+      case 1: r = q; g = v; b = p; break;
+      case 2: r = p; g = v; b = t; break;
+      case 3: r = p; g = q; b = v; break;
+      case 4: r = t; g = p; b = v; break;
+      default: r = v; g = p; b = q; break;
+    }
+    const toHex = (x) => Math.round(x * 255).toString(16).padStart(2, "0");
+    return "#" + toHex(r) + toHex(g) + toHex(b);
+  }
+}
+// ─── end ColorPicker ────────────────────────────────────────────────────────
+
+function buildColorPalettePickerHtml(colors, canEdit) {
+  const swatches = colors
+    .map(
+      (color, index) => `
+      <div class="palette-swatch-wrap">
+        <div class="palette-swatch" style="background:${escapeHtml(color)}" data-palette-index="${index}" role="button" tabindex="0" aria-label="Edit color ${index + 1}: ${escapeHtml(color)}"></div>
+        ${canEdit ? `<button class="palette-remove-btn" type="button" data-palette-remove="${index}" aria-label="Remove color">×</button>` : ""}
+      </div>
+    `,
+    )
+    .join("");
+
+  const addBtn =
+    canEdit && colors.length < 5
+      ? `<button id="palette-add-btn" class="palette-add-btn" type="button" aria-label="Add color">+</button>`
+      : "";
+
+  return swatches + addBtn;
+}
+
 function renderHomeView() {
   const cards = state.projects
     .map((project) => {
@@ -1752,6 +2086,8 @@ function renderHomeView() {
           ? "1 track"
           : `${project.trackCount || 0} tracks`;
       const runtimeLabel = formatRuntime(project.totalRuntimeSeconds || 0);
+      const completionPercent = project.completionPercent || 0;
+      const starRating = project.starRating || 0;
       return `
         <article class="project-card" data-open-project="${escapeHtml(project.id)}">
           <div class="card-cover">
@@ -1762,7 +2098,9 @@ function renderHomeView() {
             <h3 class="card-title">${escapeHtml(project.title || "Untitled Project")}</h3>
             <p class="card-artist">${escapeHtml(project.artist || "Unknown Artist")}</p>
             <p class="card-meta">${escapeHtml(`${trackLabel} • ${runtimeLabel}`)}</p>
+            ${starRating > 0 ? `<div class="card-rating">${buildCardStarsHtml(starRating)}</div>` : ""}
           </div>
+          ${completionPercent > 0 ? `<div class="card-progress-wrap"><div class="card-progress-bar" style="width:${completionPercent}%"></div></div>` : ""}
         </article>
       `;
     })
@@ -1905,6 +2243,11 @@ function renderProjectView() {
     return;
   }
 
+  // Sync working color palette from project
+  state.metadataPanel.colorPalette = Array.isArray(project.colorPalette)
+    ? [...project.colorPalette]
+    : [];
+
   const canEdit = canCurrentViewEdit();
   const canListen = canCurrentViewListen();
   const showOwnerShareManager = !isShareRoute();
@@ -1990,6 +2333,16 @@ function renderProjectView() {
                   <span class="stats-dot">&middot;</span>
                 <span class="project-runtime">${escapeHtml(runtimeLabel)}</span>
               </div>
+
+              ${
+                (project.colorPalette && project.colorPalette.length) ||
+                project.releaseDate
+                  ? `<div class="project-meta-chips">
+                      ${project.colorPalette && project.colorPalette.length ? `<div class="project-palette-row">${buildColorPaletteSwatchesHtml(project.colorPalette)}</div>` : ""}
+                      ${project.releaseDate ? `<div class="project-deadline-chip">${buildDeadlineCountdownHtml(project.releaseDate)}</div>` : ""}
+                    </div>`
+                  : ""
+              }
             </div>
 
             <div class="project-main-controls">
@@ -2003,6 +2356,7 @@ function renderProjectView() {
 
             <div class="project-secondary-controls">
               <select id="project-status" class="project-status-select" title="Status" aria-label="Status" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
+              <button id="open-metadata-button" class="secondary-button panel-trigger-btn" type="button">${icon("metadata")} Metadata</button>
               <button id="open-notes-button" class="secondary-button panel-trigger-btn" type="button">${icon("notes")} Notes</button>
               ${showOwnerShareManager ? `<button id="open-share-button" class="secondary-button panel-trigger-btn" type="button">${icon("link")} Share</button>` : ""}
             </div>
@@ -2116,6 +2470,82 @@ function renderProjectView() {
       `
           : ""
       }
+
+      <div id="metadata-panel" class="panel-overlay hidden" role="dialog" aria-modal="true" aria-label="Project metadata">
+        <div class="panel-sheet panel-sheet-wide">
+          <header class="panel-header">
+            <h3>Metadata</h3>
+            <button id="metadata-panel-close" class="circle-button" type="button" aria-label="Close metadata">${icon("close")}</button>
+          </header>
+          <div class="panel-body">
+
+            <div class="meta-section">
+              <label class="meta-section-label" for="meta-release-date">Release Date</label>
+              <input type="date" id="meta-release-date" class="metadata-date-input" value="${escapeHtml(project.releaseDate || "")}" ${canEdit ? "" : "disabled"} />
+              <div id="meta-deadline-countdown" class="deadline-countdown${project.releaseDate ? "" : " hidden"}">${project.releaseDate ? buildDeadlineCountdownHtml(project.releaseDate) : ""}</div>
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label">Completion — <span id="meta-completion-display">${project.completionPercent || 0}%</span></label>
+              <div class="completion-track">
+                <input type="range" id="meta-completion-range" min="0" max="100" value="${project.completionPercent || 0}" ${canEdit ? "" : "disabled"} />
+                <input type="number" id="meta-completion-num" class="metadata-num-input" min="0" max="100" value="${project.completionPercent || 0}" ${canEdit ? "" : "disabled"} />
+              </div>
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label">Rating</label>
+              <div id="meta-star-rating" class="star-rating-widget" data-rating="${project.starRating || 0}">
+                ${[1, 2, 3, 4, 5].map((n) => `<button class="star-btn${n <= (project.starRating || 0) ? " active" : ""}" type="button" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}" ${canEdit ? "" : "disabled"}>★</button>`).join("")}
+              </div>
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label">Color Palette</label>
+              <div id="meta-color-palette" class="color-palette-row">
+                ${buildColorPalettePickerHtml(state.metadataPanel.colorPalette, canEdit)}
+              </div>
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label">Streaming Platforms</label>
+              <div class="streaming-checklist">
+                ${[
+                  { key: "spotify", label: "Spotify" },
+                  { key: "appleMusic", label: "Apple Music" },
+                  { key: "bandcamp", label: "Bandcamp" },
+                  { key: "tidal", label: "Tidal" },
+                  { key: "youtubeMusic", label: "YouTube Music" },
+                  { key: "soundCloud", label: "SoundCloud" },
+                ]
+                  .map(
+                    ({ key, label }) => `
+                  <label class="stream-check-row">
+                    <input type="checkbox" class="stream-checkbox" data-platform="${escapeHtml(key)}" ${(project.streamingChecklist || {})[key] ? "checked" : ""} ${canEdit ? "" : "disabled"} />
+                    <span>${escapeHtml(label)}</span>
+                  </label>
+                `,
+                  )
+                  .join("")}
+              </div>
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label" for="meta-presave-link">Pre-Save Link</label>
+              <input type="url" id="meta-presave-link" class="metadata-url-input" placeholder="https://..." value="${escapeHtml(project.preSaveLink || "")}" ${canEdit ? "" : "disabled"} />
+              ${project.preSaveLink ? `<a href="${escapeHtml(project.preSaveLink)}" target="_blank" rel="noopener noreferrer" class="presave-link-preview">Open link ↗</a>` : ""}
+            </div>
+
+            <div class="meta-section">
+              <label class="meta-section-label" for="meta-distributor-notes">Distributor Notes</label>
+              <textarea id="meta-distributor-notes" class="metadata-textarea" placeholder="DistroKid / TuneCore details, ISRC codes, release admin notes…" ${canEdit ? "" : "disabled"}>${escapeHtml(project.distributorNotes || "")}</textarea>
+            </div>
+
+            ${canEdit ? `<div class="metadata-actions"><button id="metadata-save" class="primary-button" type="button">Save Metadata</button></div>` : ""}
+
+          </div>
+        </div>
+      </div>
     </section>
   `;
 
@@ -2130,6 +2560,183 @@ function renderProjectView() {
         .forEach(applyMarquee);
     });
   });
+}
+
+function bindMetadataPanelInteractions(projectId, canEdit) {
+  const panel = document.getElementById("metadata-panel");
+  const closeBtn = document.getElementById("metadata-panel-close");
+  const openBtn = document.getElementById("open-metadata-button");
+  const releaseDateInput = document.getElementById("meta-release-date");
+  const completionRange = document.getElementById("meta-completion-range");
+  const completionNum = document.getElementById("meta-completion-num");
+  const completionDisplay = document.getElementById("meta-completion-display");
+  const starWidget = document.getElementById("meta-star-rating");
+  const colorPaletteEl = document.getElementById("meta-color-palette");
+  const saveBtn = document.getElementById("metadata-save");
+
+  if (!panel) return;
+
+  function closePanel() {
+    ColorPicker.close();
+    animatedClose(panel);
+  }
+
+  if (openBtn) {
+    openBtn.addEventListener("click", () => {
+      panel.classList.remove("hidden");
+    });
+  }
+
+  if (closeBtn) {
+    closeBtn.addEventListener("click", closePanel);
+  }
+
+  panel.addEventListener("click", (event) => {
+    if (event.target === panel) closePanel();
+  });
+
+  if (!canEdit) return;
+
+  // Deadline countdown live update
+  function updateDeadlineCountdown() {
+    const countdownEl = document.getElementById("meta-deadline-countdown");
+    if (!countdownEl) return;
+    const val = releaseDateInput ? releaseDateInput.value : "";
+    if (!val) {
+      countdownEl.classList.add("hidden");
+      countdownEl.innerHTML = "";
+      return;
+    }
+    countdownEl.classList.remove("hidden");
+    countdownEl.innerHTML = buildDeadlineCountdownHtml(val);
+  }
+
+  if (releaseDateInput) {
+    releaseDateInput.addEventListener("change", updateDeadlineCountdown);
+  }
+
+  // Completion slider ↔ number input sync
+  if (completionRange && completionNum && completionDisplay) {
+    completionRange.addEventListener("input", () => {
+      completionNum.value = completionRange.value;
+      completionDisplay.textContent = completionRange.value + "%";
+    });
+    completionNum.addEventListener("input", () => {
+      const clamped = Math.max(
+        0,
+        Math.min(100, Math.round(Number(completionNum.value) || 0)),
+      );
+      completionRange.value = clamped;
+      completionDisplay.textContent = clamped + "%";
+    });
+  }
+
+  // Star rating
+  if (starWidget) {
+    starWidget.querySelectorAll(".star-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const starVal = Number(btn.dataset.star);
+        const current = Number(starWidget.dataset.rating) || 0;
+        const newRating = starVal === current ? 0 : starVal;
+        starWidget.dataset.rating = newRating;
+        starWidget
+          .querySelectorAll(".star-btn")
+          .forEach((s, i) => s.classList.toggle("active", i + 1 <= newRating));
+      });
+    });
+  }
+
+  // Color palette
+  function rebuildColorPalette() {
+    if (!colorPaletteEl) return;
+    colorPaletteEl.innerHTML = buildColorPalettePickerHtml(
+      state.metadataPanel.colorPalette,
+      canEdit,
+    );
+    bindColorPaletteEvents();
+  }
+
+  function bindColorPaletteEvents() {
+    if (!colorPaletteEl) return;
+
+    // swatch click → open custom color picker
+    colorPaletteEl.querySelectorAll(".palette-swatch[data-palette-index]").forEach((swatch) => {
+      const openPicker = () => {
+        if (!canEdit) return;
+        const idx = Number(swatch.dataset.paletteIndex);
+        const currentColor = state.metadataPanel.colorPalette[idx] || "#a89eff";
+        ColorPicker.open(swatch, currentColor, (hex) => {
+          state.metadataPanel.colorPalette[idx] = hex;
+          swatch.style.background = hex;
+          swatch.setAttribute("aria-label", `Edit color ${idx + 1}: ${hex}`);
+        });
+      };
+      swatch.addEventListener("click", openPicker);
+      swatch.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPicker(); }
+      });
+    });
+
+    colorPaletteEl.querySelectorAll("[data-palette-remove]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const idx = Number(btn.dataset.paletteRemove);
+        if (Number.isFinite(idx)) {
+          ColorPicker.close();
+          state.metadataPanel.colorPalette.splice(idx, 1);
+          rebuildColorPalette();
+        }
+      });
+    });
+
+    const addBtn = document.getElementById("palette-add-btn");
+    if (addBtn) {
+      addBtn.addEventListener("click", () => {
+        if (state.metadataPanel.colorPalette.length < 5) {
+          state.metadataPanel.colorPalette.push("#a89eff");
+          rebuildColorPalette();
+        }
+      });
+    }
+  }
+
+  bindColorPaletteEvents();
+
+  // Save
+  if (saveBtn) {
+    saveBtn.addEventListener("click", async () => {
+      const releaseDateVal = releaseDateInput ? releaseDateInput.value : "";
+      const completionVal = completionRange
+        ? Math.max(0, Math.min(100, Math.round(Number(completionRange.value) || 0)))
+        : 0;
+      const starVal = starWidget ? Number(starWidget.dataset.rating) || 0 : 0;
+      const preSaveVal =
+        document.getElementById("meta-presave-link")?.value || "";
+      const distributorVal =
+        document.getElementById("meta-distributor-notes")?.value || "";
+
+      const streamingChecklist = {};
+      document.querySelectorAll(".stream-checkbox").forEach((cb) => {
+        streamingChecklist[cb.dataset.platform] = cb.checked;
+      });
+
+      try {
+        await saveProject({
+          releaseDate: releaseDateVal || null,
+          completionPercent: completionVal,
+          starRating: starVal,
+          colorPalette: [...state.metadataPanel.colorPalette],
+          streamingChecklist,
+          preSaveLink: preSaveVal,
+          distributorNotes: distributorVal,
+        });
+        showToast("Metadata saved");
+        closePanel();
+        renderProjectView();
+      } catch (error) {
+        showToast(error.message || "Could not save metadata");
+      }
+    });
+  }
 }
 
 function bindProjectViewInteractions() {
@@ -2540,6 +3147,8 @@ function bindProjectViewInteractions() {
   }
 
   bindTrackMenuInteractions(project.id, { canEdit });
+
+  bindMetadataPanelInteractions(project.id, canEdit);
 
   if (!isShareRoute() && canEdit) {
     bindTrackDragAndDrop(project.id);
