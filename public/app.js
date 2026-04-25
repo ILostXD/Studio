@@ -77,8 +77,8 @@ const state = {
     index: -1,
     track: null,
     autoplayOnReady: false,
-    volume: 0.85,
-    previousVolume: 0.85,
+    volume: 1,
+    previousVolume: 1,
     loop: "none",
     shuffle: false,
   },
@@ -197,6 +197,33 @@ function formatShortDate(value) {
 function buildLocalId(prefix) {
   const randomPart = Math.random().toString(36).slice(2, 9);
   return `${prefix}-${Date.now()}-${randomPart}`;
+}
+
+// Sets text on a .marquee-wrap element and activates scrolling when the text
+// overflows. Uses requestAnimationFrame so the DOM has been painted first.
+function setMarqueeText(el, text) {
+  if (!el) return;
+  const inner = el.querySelector(".marquee-inner") || el;
+  inner.textContent = text;
+  el.classList.remove("is-scrolling");
+  el.style.removeProperty("--marquee-offset");
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      applyMarquee(el);
+    });
+  });
+}
+
+function applyMarquee(el) {
+  if (!el) return;
+  const inner = el.querySelector(".marquee-inner") || el;
+  el.classList.remove("is-scrolling");
+  el.style.removeProperty("--marquee-offset");
+  const overflow = inner.scrollWidth - el.clientWidth;
+  if (overflow > 2) {
+    el.style.setProperty("--marquee-offset", `-${overflow}px`);
+    el.classList.add("is-scrolling");
+  }
 }
 
 function sanitizeTodoText(value) {
@@ -539,12 +566,6 @@ function ensurePlayableTrackSubtitle(track) {
     values.push(String(track.notes).split("\n")[0].slice(0, 60));
   } else if (track.lyrics) {
     values.push(`Lyrics: ${String(track.lyrics).split("\n")[0].slice(0, 48)}`);
-  } else if (track.todos) {
-    const todos = normalizeTodos(track.todos);
-    const openTodos = todos.filter((todo) => !todo.done).length;
-    values.push(
-      openTodos ? `Todos: ${openTodos} open` : `Todos: ${todos.length}`,
-    );
   } else if (track.originalName) {
     values.push(track.originalName);
   }
@@ -559,6 +580,9 @@ function updatePlayerButtonState() {
 
   const isPlaying = state.player.wavesurfer.isPlaying();
   playerPlayButton.innerHTML = isPlaying ? icon("pause") : icon("play");
+  if (playerCoverElement) {
+    playerCoverElement.classList.toggle("is-playing", isPlaying);
+  }
 }
 
 function updatePlayerVolumeUi(volume) {
@@ -667,8 +691,10 @@ function setPlayerCoverArt() {
     state.route.type === "share" ? state.sharedProject : state.currentProject;
 
   if (playerAlbumTitleElement) {
-    playerAlbumTitleElement.textContent =
-      activeProject && activeProject.title ? activeProject.title : "";
+    setMarqueeText(
+      playerAlbumTitleElement,
+      activeProject && activeProject.title ? activeProject.title : "",
+    );
   }
 
   if (activeProject && activeProject.coverUrl) {
@@ -690,13 +716,38 @@ function setPlayerCoverArt() {
 
 function highlightActiveTrackRows() {
   const activeTrackId = state.player.track ? state.player.track.id : null;
+  const isPlaying = Boolean(
+    state.player.wavesurfer && state.player.wavesurfer.isPlaying(),
+  );
+
   const rows = appRoot.querySelectorAll(".track-row[data-track-id]");
   rows.forEach((row) => {
-    row.classList.toggle(
-      "is-active",
-      Boolean(activeTrackId && row.dataset.trackId === activeTrackId),
+    const isActive = Boolean(
+      activeTrackId && row.dataset.trackId === activeTrackId,
     );
+    row.classList.toggle("is-active", isActive);
+
+    // Swap the play/pause icon on the track's play button
+    const playBtn = row.querySelector(".track-play-button");
+    if (playBtn) {
+      playBtn.innerHTML = isActive && isPlaying ? icon("pause") : icon("play");
+      playBtn.title = isActive && isPlaying ? "Pause track" : "Play track";
+    }
   });
+
+  // Update the main play-all button
+  const playAllButton = document.getElementById("play-all-button");
+  if (playAllButton) {
+    const projectTracks =
+      (getActiveProject() && getActiveProject().tracks) || [];
+    const projectIsActive = Boolean(
+      activeTrackId && projectTracks.some((t) => t.id === activeTrackId),
+    );
+    playAllButton.innerHTML =
+      projectIsActive && isPlaying ? icon("pause") : icon("play");
+    playAllButton.title =
+      projectIsActive && isPlaying ? "Pause" : "Play from start";
+  }
 }
 
 function playTrackByIndex(index) {
@@ -816,9 +867,11 @@ function playTrack(track, queue, index) {
   state.player.track = track;
   state.player.autoplayOnReady = true;
 
-  playerTitleElement.textContent =
+  const trackDisplayTitle =
     track.title || track.originalName || "Untitled Track";
-  playerSubtitleElement.textContent = ensurePlayableTrackSubtitle(track);
+  document.title = trackDisplayTitle + " — Studio";
+  setMarqueeText(playerTitleElement, trackDisplayTitle);
+  setMarqueeText(playerSubtitleElement, ensurePlayableTrackSubtitle(track));
   playerCurrentTimeElement.textContent = "0:00";
   playerDurationElement.textContent = "0:00";
 
@@ -911,8 +964,14 @@ function initializePlayer() {
     syncPlayerTime(state.player.wavesurfer.getCurrentTime());
   });
 
-  state.player.wavesurfer.on("play", updatePlayerButtonState);
-  state.player.wavesurfer.on("pause", updatePlayerButtonState);
+  state.player.wavesurfer.on("play", () => {
+    updatePlayerButtonState();
+    highlightActiveTrackRows();
+  });
+  state.player.wavesurfer.on("pause", () => {
+    updatePlayerButtonState();
+    highlightActiveTrackRows();
+  });
   state.player.wavesurfer.on("finish", () => {
     const loop = state.player.loop;
     if (loop === "one") {
@@ -953,8 +1012,20 @@ function initializePlayer() {
     });
   }
 
+  const playerVolumePopover = playerVolumeToggleButton
+    ? playerVolumeToggleButton.nextElementSibling
+    : null;
+
   if (playerVolumeToggleButton) {
     playerVolumeToggleButton.addEventListener("click", () => {
+      // On touch devices: toggle the slider popover instead of muting
+      if (window.matchMedia("(pointer: coarse)").matches) {
+        if (playerVolumePopover) {
+          playerVolumePopover.classList.toggle("is-open");
+        }
+        return;
+      }
+
       if (state.player.volume <= 0.001) {
         applyPlayerVolume(state.player.previousVolume || 0.85);
         return;
@@ -964,6 +1035,34 @@ function initializePlayer() {
       applyPlayerVolume(0);
     });
   }
+
+  // Mouse wheel adjusts volume when hovering over the volume control
+  const playerVolumeWrap = playerVolumeToggleButton
+    ? playerVolumeToggleButton.closest(".player-volume")
+    : null;
+  if (playerVolumeWrap) {
+    playerVolumeWrap.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+        const delta = event.deltaY < 0 ? 0.05 : -0.05;
+        applyPlayerVolume(clampNumber(state.player.volume + delta, 0, 1));
+      },
+      { passive: false },
+    );
+  }
+
+  // Close volume popover when clicking outside (touch devices)
+  document.addEventListener("click", (event) => {
+    if (
+      playerVolumePopover &&
+      playerVolumePopover.classList.contains("is-open") &&
+      !playerVolumePopover.contains(event.target) &&
+      event.target !== playerVolumeToggleButton
+    ) {
+      playerVolumePopover.classList.remove("is-open");
+    }
+  });
 
   if (playerShuffleBtn) {
     playerShuffleBtn.innerHTML = icon("shuffle");
@@ -1748,7 +1847,7 @@ function projectTrackHtml(track, listIndex) {
   }
   if (activeVersion && activeVersion.originalName) {
     badges.push(
-      `<span class="track-badge">${escapeHtml(activeVersion.originalName.slice(0, 26))}</span>`,
+      `<span class="track-badge track-badge-filename marquee-wrap"><span class="marquee-inner">${escapeHtml(activeVersion.originalName)}</span></span>`,
     );
   }
 
@@ -1903,10 +2002,7 @@ function renderProjectView() {
             <button id="upload-tracks-button" class="add-tracks-button" type="button" ${canEdit ? "" : "disabled"}>+ Add tracks</button>
 
             <div class="project-secondary-controls">
-              <div class="meta-row">
-                <label for="project-status">Status</label>
-                <select id="project-status" class="project-status-select" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
-              </div>
+              <select id="project-status" class="project-status-select" title="Status" aria-label="Status" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
               <button id="open-notes-button" class="secondary-button panel-trigger-btn" type="button">${icon("notes")} Notes</button>
               ${showOwnerShareManager ? `<button id="open-share-button" class="secondary-button panel-trigger-btn" type="button">${icon("link")} Share</button>` : ""}
             </div>
@@ -2025,6 +2121,15 @@ function renderProjectView() {
 
   bindProjectViewInteractions();
   highlightActiveTrackRows();
+
+  // Measure filename badge marquees after paint
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      appRoot
+        .querySelectorAll(".track-badge.marquee-wrap")
+        .forEach(applyMarquee);
+    });
+  });
 }
 
 function bindProjectViewInteractions() {
@@ -2131,8 +2236,9 @@ function bindProjectViewInteractions() {
         state.player.track = null;
         state.player.autoplayOnReady = false;
         playerElement.classList.add("hidden");
-        playerTitleElement.textContent = "No track loaded";
-        playerSubtitleElement.textContent = "";
+        document.title = "Studio";
+        setMarqueeText(playerTitleElement, "No track loaded");
+        setMarqueeText(playerSubtitleElement, "");
         playerCurrentTimeElement.textContent = "0:00";
         playerDurationElement.textContent = "0:00";
 
@@ -2269,6 +2375,16 @@ function bindProjectViewInteractions() {
       const queue = (activeProject && activeProject.tracks) || [];
       if (!queue.length) {
         showToast("No tracks available");
+        return;
+      }
+
+      // If this project is already active, toggle play/pause
+      const activeTrackId = state.player.track ? state.player.track.id : null;
+      const projectIsActive = Boolean(
+        activeTrackId && queue.some((t) => t.id === activeTrackId),
+      );
+      if (projectIsActive && state.player.wavesurfer) {
+        state.player.wavesurfer.playPause();
         return;
       }
 

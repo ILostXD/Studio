@@ -606,18 +606,17 @@ textarea {
 }
 
 .player-track-title {
-  font-size: 15px;
+  font-size: 17px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .player-track-subtitle {
   color: var(--muted);
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .player-controls {
@@ -940,7 +939,7 @@ textarea {
 
 .project-tools {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: space-between;
   gap: 12px;
 }
@@ -951,7 +950,7 @@ textarea {
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
   color: #ececec;
-  height: 34px;
+  padding: 8px 12px;
   font-size: 14px;
   cursor: pointer;
   transition: border-color 150ms ease, background-color 150ms ease;
@@ -964,7 +963,7 @@ textarea {
 
 .project-secondary-controls {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -972,13 +971,31 @@ textarea {
 
 .project-status-select {
   min-width: 132px;
-  height: 34px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.66);
-  color: #d7d7d7;
-  padding: 5px 10px;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 12px;
   font-size: 13px;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238d8d8d' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+}
+
+.project-status-select:hover {
+  border-color: var(--accent);
+  background-color: var(--surface);
+}
+
+.project-status-select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .project-view .meta-row {
@@ -1189,6 +1206,11 @@ textarea {
   font-size: 10px;
   color: #9ea7bb;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.track-badge-filename {
+  max-width: 150px;
+  overflow: hidden;
 }
 
 .project-view .track-notes-editable {
@@ -1605,6 +1627,8 @@ textarea {
   aspect-ratio: 1 / 1;
   flex: 0 0 auto;
   border-radius: 999px;
+  animation: cover-spin 20s linear infinite;
+  animation-play-state: paused;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background:
     radial-gradient(circle at 30% 30%, rgba(168, 158, 255, 0.48), transparent 58%),
@@ -1673,7 +1697,8 @@ textarea {
 }
 
 .player-volume:hover .player-volume-popover,
-.player-volume:focus-within .player-volume-popover {
+.player-volume:focus-within .player-volume-popover,
+.player-volume-popover.is-open {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -1687,6 +1712,63 @@ textarea {
   transform: rotate(-90deg);
   accent-color: var(--accent);
   cursor: pointer;
+  touch-action: none;
+}
+
+/* Touch device: horizontal popover */
+@media (pointer: coarse) {
+  .player-volume:hover .player-volume-popover {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(6px);
+  }
+
+  .player-volume-popover.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .player-volume-popover {
+    right: -3px;
+    bottom: calc(100% + 8px);
+    width: 180px;
+    height: 52px;
+    border-radius: 14px;
+    padding: 10px 14px;
+    flex-direction: row;
+  }
+
+  .player-volume-slider {
+    transform: none;
+    width: 100%;
+    height: 36px;
+    /* Custom thumb for touch */
+  }
+
+  .player-volume-slider::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+  }
+
+  .player-volume-slider::-moz-range-thumb {
+    width: 22px;
+    height: 22px;
+  }
+
+  .player-volume-slider::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .player-volume-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.15);
+  }
 }
 
 .player-controls {
@@ -1792,16 +1874,7 @@ textarea {
     justify-content: space-between;
   }
 
-  .player-volume-popover {
-    right: -2px;
-    width: 32px;
-    height: 102px;
-    padding: 7px 0;
-  }
-
-  .player-volume-slider {
-    width: 64px;
-  }
+  /* Volume popover overrides for the touch @media block handle the layout */
 
   .track-menu-overlay {
     padding: 8px;
@@ -1866,17 +1939,46 @@ textarea {
 
 /* ── Album title in miniplayer ─────────────────────────────── */
 .player-album-title {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 180px;
   line-height: 1;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+}
+
+/* ── Marquee scrolling text ────────────────────────────────── */
+.marquee-wrap {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.marquee-wrap .marquee-inner {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.marquee-wrap.is-scrolling .marquee-inner {
+  animation: marquee-slide 7s ease-in-out infinite;
+  animation-delay: 1.2s;
+}
+
+@keyframes marquee-slide {
+  0%,
+  20%  { transform: translateX(0); }
+  80%,
+  100% { transform: translateX(var(--marquee-offset, 0px)); }
+}
+
+@keyframes cover-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.player-cover-art.is-playing {
+  animation-play-state: running;
 }
 
 /* ── Player extra controls (queue / shuffle / loop) ────────── */
@@ -2089,3 +2191,97 @@ textarea {
   gap: 5px;
 }
 
+/* ── General touch / mobile improvements ───────────────────── */
+
+/* Safe-area padding on notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  #app {
+    padding-bottom: calc(228px + env(safe-area-inset-bottom));
+  }
+
+  .player {
+    bottom: calc(46px + env(safe-area-inset-bottom));
+  }
+
+  @media (max-width: 840px) {
+    .player {
+      bottom: calc(24px + env(safe-area-inset-bottom));
+    }
+  }
+}
+
+/* Larger tap targets on touch devices */
+@media (pointer: coarse) {
+  .player-btn {
+    min-width: 38px;
+    height: 38px;
+  }
+
+  .player-btn.primary {
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .circle-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .track-play-button,
+  .track-menu-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* Prevent tiny tap targets on project tools */
+  .add-tracks-button {
+    height: 42px;
+    font-size: 15px;
+  }
+
+  .project-status-select,
+  .secondary-button {
+    min-height: 42px;
+  }
+
+  /* Waveform: slightly taller for easier seeking */
+  .waveform {
+    height: 38px;
+  }
+
+  /* Track rows: more breathing room */
+  .project-view .track-row {
+    padding: 14px 6px;
+  }
+
+  /* Todo checkboxes: bigger */
+  .todo-toggle {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* Tighten secondary-controls on small phones */
+@media (max-width: 480px) {
+  #app {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .project-secondary-controls {
+    gap: 8px;
+  }
+
+  .project-status-select {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .player-album-title {
+    display: none;
+  }
+
+  .player-time {
+    font-size: 9px;
+  }
+}

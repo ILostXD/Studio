@@ -22,11 +22,24 @@
             S
           </div>
           <div class="player-meta">
-            <div id="player-album-title" class="player-album-title"></div>
-            <div id="player-track-title" class="player-track-title">
-              No track loaded
+            <div
+              id="player-album-title"
+              class="player-album-title marquee-wrap"
+            >
+              <span class="marquee-inner"></span>
             </div>
-            <div id="player-track-subtitle" class="player-track-subtitle"></div>
+            <div
+              id="player-track-title"
+              class="player-track-title marquee-wrap"
+            >
+              <span class="marquee-inner">No track loaded</span>
+            </div>
+            <div
+              id="player-track-subtitle"
+              class="player-track-subtitle marquee-wrap"
+            >
+              <span class="marquee-inner"></span>
+            </div>
           </div>
         </div>
 
@@ -106,7 +119,7 @@
                 min="0"
                 max="1"
                 step="0.01"
-                value="0.85"
+                value="1"
                 aria-label="Volume"
               />
             </div>
