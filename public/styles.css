@@ -12,6 +12,8 @@
   --accent-soft: rgba(168, 158, 255, 0.24);
   --danger: #ff5f78;
   --radius: 14px;
+  --sticky-row-top: 10px;
+  --sticky-cover-top: 104px;
 }
 
 * {
@@ -147,6 +149,15 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+  position: sticky;
+  top: var(--sticky-row-top);
+  z-index: 40;
+}
+
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .brand {
@@ -190,6 +201,14 @@ textarea {
   transition: transform 140ms ease, border-color 140ms ease, background-color 140ms ease;
 }
 
+.primary-button,
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
 .primary-button:hover,
 .secondary-button:hover,
 .icon-button:hover,
@@ -215,6 +234,17 @@ textarea {
 .primary-button {
   border-color: var(--accent);
   background: linear-gradient(120deg, rgba(168, 158, 255, 0.2), rgba(168, 158, 255, 0.06));
+}
+
+.ui-select {
+  box-shadow: none;
+  outline: none;
+}
+
+.ui-select:focus,
+.ui-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(168, 158, 255, 0.24);
 }
 
 .secondary-button {
@@ -728,6 +758,9 @@ textarea {
   margin-bottom: 44px;
   margin-inline: calc(-1 * clamp(52px, 11vw, 168px) + 22px);
   padding-inline: 22px;
+  position: sticky;
+  top: var(--sticky-row-top);
+  z-index: 45;
 }
 
 .project-chrome .icon-svg {
@@ -764,6 +797,12 @@ textarea {
   transform: translateY(-1px);
 }
 
+#delete-project-button:hover {
+  border-color: rgba(255, 95, 120, 0.65);
+  background: rgba(255, 95, 120, 0.12);
+  color: #ffc8cf;
+}
+
 .project-stage {
   display: grid;
   grid-template-columns: minmax(240px, 400px) minmax(320px, 1fr);
@@ -782,6 +821,9 @@ textarea {
   flex-direction: column;
   gap: 10px;
   align-items: center;
+  position: sticky;
+  top: var(--sticky-cover-top);
+  align-self: start;
 }
 
 .cover-switcher-wrap {
@@ -898,6 +940,13 @@ textarea {
 
 .stats-dot {
   color: #737373;
+}
+
+.track-meta-dot {
+  display: inline-flex;
+  align-items: center;
+  color: #737373;
+  line-height: 1;
 }
 
 .project-track-count {
@@ -1301,7 +1350,7 @@ textarea {
   display: flex;
   justify-content: flex-end;
   align-items: stretch;
-  padding: 12px;
+  padding: 22px;
 }
 
 .track-menu-overlay.hidden {
@@ -1328,15 +1377,15 @@ textarea {
 }
 
 .track-menu-sheet {
-  width: min(430px, calc(100vw - 24px));
+  width: min(448px, calc(100vw - 44px));
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   background: rgba(10, 10, 12, 0.96);
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.58);
-  padding: 12px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
   overflow-y: auto;
 }
 
@@ -1385,7 +1434,7 @@ textarea {
 .track-menu-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .track-menu-field label {
@@ -1671,6 +1720,12 @@ textarea {
   border-color: var(--accent);
 }
 
+.track-key-select.is-empty {
+  color: #a1a9b8;
+  border-color: var(--line);
+  box-shadow: none !important;
+}
+
 .track-key-select option,
 .track-status-select option {
   background: var(--surface);
@@ -1790,7 +1845,7 @@ textarea {
 }
 
 .track-inline-meta::before {
-  content: "· ";
+  content: none;
 }
 
 /* Camelot key badge — Spotify-style colored pill */
@@ -2117,13 +2172,13 @@ textarea {
   /* Volume popover overrides for the touch @media block handle the layout */
 
   .track-menu-overlay {
-    padding: 8px;
+    padding: 10px;
     align-items: flex-end;
   }
 
   .track-menu-sheet {
     width: 100%;
-    max-height: calc(100vh - 16px);
+    max-height: calc(100vh - 20px);
   }
 }
 
@@ -2174,6 +2229,13 @@ textarea {
 
   .player-time {
     justify-self: end;
+  }
+}
+
+@media (max-width: 840px) {
+  .cover-stack {
+    position: static;
+    top: auto;
   }
 }
 
@@ -3241,21 +3303,22 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 13px;
-  background: #111;
-  border: 1px solid #272727;
-  border-radius: 9px;
-  color: var(--muted);
+  justify-content: center;
+  height: 36px;
+  padding: 0 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--text);
   font-size: 13px;
   cursor: pointer;
-  transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+  transition: border-color 140ms ease, background-color 140ms ease;
   white-space: nowrap;
 }
 
 .sort-button:hover {
   border-color: var(--accent);
-  color: var(--text);
-  background: #181818;
+  background: var(--surface);
 }
 
 .sort-menu {
@@ -3263,9 +3326,9 @@ textarea {
   top: calc(100% + 6px);
   left: 0;
   z-index: 400;
-  background: #141414;
-  border: 1px solid #252525;
-  border-radius: 11px;
+  background: rgba(10, 10, 12, 0.98);
+  border: 1px solid var(--line);
+  border-radius: 12px;
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
   min-width: 180px;
   padding: 6px;
@@ -3282,22 +3345,125 @@ textarea {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 7px 11px;
-  background: none;
-  border: none;
+  padding: 8px 11px;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 7px;
-  color: var(--muted);
+  color: #c5cad7;
   font-size: 13px;
   cursor: pointer;
-  transition: background-color 110ms ease, color 110ms ease;
+  transition: border-color 110ms ease, background-color 110ms ease,
+    color 110ms ease;
 }
 
 .sort-menu-item:hover {
-  background: #222;
+  border-color: rgba(168, 158, 255, 0.32);
+  background: rgba(168, 158, 255, 0.1);
   color: var(--text);
 }
 
 .sort-menu-item--active {
   color: var(--accent);
   font-weight: 500;
+}
+
+/* ── Settings page ─────────────────────────────────────────────────────── */
+.settings-view {
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+.settings-chrome {
+  margin-bottom: 24px;
+}
+
+.settings-panel {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-title {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 34px);
+}
+
+.settings-subtitle {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.settings-card {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  background: rgba(12, 12, 14, 0.92);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-card-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.settings-toggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.settings-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.settings-toggle-label {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.settings-toggle-desc {
+  color: #8e96a7;
+  font-size: 12px;
+}
+
+.settings-toggle-input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+@media (max-width: 760px) {
+  .settings-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }

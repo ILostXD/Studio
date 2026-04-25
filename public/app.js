@@ -95,6 +95,59 @@ const SHARE_ACCESS_OPTIONS = [
   { value: "view", label: "See Only" },
   { value: "edit", label: "See + Edit + Listen" },
 ];
+const TRACK_TAG_VISIBILITY_DEFAULTS = {
+  date: true,
+  fileName: true,
+  bpm: true,
+  key: true,
+  playCount: true,
+  status: true,
+  moodTags: true,
+  contextBadges: true,
+};
+const TRACK_TAG_VISIBILITY_FIELDS = [
+  {
+    key: "date",
+    label: "Track date",
+    description: "Show the date tag in each track row",
+  },
+  {
+    key: "fileName",
+    label: "Source file name",
+    description: "Show original file names in track rows",
+  },
+  {
+    key: "bpm",
+    label: "BPM tag",
+    description: "Show BPM inline tags",
+  },
+  {
+    key: "key",
+    label: "Key + Camelot tag",
+    description: "Show musical key and Camelot badge",
+  },
+  {
+    key: "playCount",
+    label: "Play count tag",
+    description: "Show listen count tags",
+  },
+  {
+    key: "status",
+    label: "Status tag",
+    description: "Show track status pill",
+  },
+  {
+    key: "moodTags",
+    label: "Mood tags",
+    description: "Show mood chips below metadata",
+  },
+  {
+    key: "contextBadges",
+    label: "Context badges",
+    description: "Show version, notes, lyrics, and todos badges",
+  },
+];
+const UI_SETTINGS_STORAGE_KEY = "studio.uiSettings.v1";
 const ICON_SVG = {
   back: '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path><path d="M9 12h11"></path></svg>',
   logout:
@@ -128,6 +181,8 @@ const ICON_SVG = {
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>',
   metadata:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"></path></svg>',
+  settings:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1v.17a2 2 0 1 1-4 0V21a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H2.83a2 2 0 1 1 0-4H3a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V2.83a2 2 0 1 1 4 0V3a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.1.31.1.65 0 1a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1 .33h.17a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1 .33 1.65 1.65 0 0 0-.6 1z"></path></svg>',
   sort:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="6" y1="12" x2="18" y2="12"></line><line x1="9" y1="18" x2="15" y2="18"></line></svg>',
 };
@@ -171,9 +226,15 @@ const state = {
     key: "updatedAt",   // updatedAt | createdAt | title | artist | status | completionPercent | starRating | releaseDate | startDate
     dir: "desc",        // asc | desc
   },
+  settings: {
+    trackTagVisibility: { ...TRACK_TAG_VISIBILITY_DEFAULTS },
+    previousPath: "/",
+  },
 };
 
 let toastTimeoutId = null;
+let trackMenuAutosaveController = null;
+let metadataAutosaveController = null;
 
 function icon(name) {
   return ICON_SVG[name] || "";
@@ -364,6 +425,172 @@ function normalizeTodos(value) {
   return [];
 }
 
+function normalizeTrackTagVisibility(value) {
+  const source = value && typeof value === "object" ? value : {};
+  const normalized = {};
+
+  Object.keys(TRACK_TAG_VISIBILITY_DEFAULTS).forEach((key) => {
+    normalized[key] =
+      typeof source[key] === "boolean"
+        ? source[key]
+        : TRACK_TAG_VISIBILITY_DEFAULTS[key];
+  });
+
+  return normalized;
+}
+
+function loadUiSettings() {
+  try {
+    const raw = window.localStorage.getItem(UI_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      state.settings.trackTagVisibility = {
+        ...TRACK_TAG_VISIBILITY_DEFAULTS,
+      };
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    state.settings.trackTagVisibility = normalizeTrackTagVisibility(
+      parsed && parsed.trackTagVisibility,
+    );
+  } catch (_error) {
+    state.settings.trackTagVisibility = {
+      ...TRACK_TAG_VISIBILITY_DEFAULTS,
+    };
+  }
+}
+
+function persistUiSettings() {
+  try {
+    const payload = {
+      trackTagVisibility: normalizeTrackTagVisibility(
+        state.settings.trackTagVisibility,
+      ),
+    };
+    window.localStorage.setItem(
+      UI_SETTINGS_STORAGE_KEY,
+      JSON.stringify(payload),
+    );
+  } catch (_error) {
+    // Ignore storage errors (private mode, quota, etc.)
+  }
+}
+
+function createAutosaveController(options = {}) {
+  const {
+    delayMs = 650,
+    getSnapshot,
+    saveSnapshot,
+    onError,
+  } = options;
+
+  let timerId = null;
+  let inFlight = false;
+  let pendingAfterFlight = false;
+  let lastSavedKey = null;
+
+  function buildSnapshotWithKey() {
+    if (typeof getSnapshot !== "function") {
+      return null;
+    }
+
+    const snapshot = getSnapshot();
+    if (!snapshot) {
+      return null;
+    }
+
+    return {
+      snapshot,
+      key: JSON.stringify(snapshot),
+    };
+  }
+
+  async function commitLatestSnapshot() {
+    const wrapped = buildSnapshotWithKey();
+    if (!wrapped || wrapped.key === lastSavedKey) {
+      return;
+    }
+
+    if (inFlight) {
+      pendingAfterFlight = true;
+      return;
+    }
+
+    inFlight = true;
+    try {
+      await saveSnapshot(wrapped.snapshot);
+      lastSavedKey = wrapped.key;
+    } catch (error) {
+      if (typeof onError === "function") {
+        onError(error);
+      }
+    } finally {
+      inFlight = false;
+      if (pendingAfterFlight) {
+        pendingAfterFlight = false;
+        void commitLatestSnapshot();
+      }
+    }
+  }
+
+  function schedule() {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+
+    timerId = window.setTimeout(() => {
+      timerId = null;
+      void commitLatestSnapshot();
+    }, delayMs);
+  }
+
+  async function flush() {
+    if (timerId) {
+      window.clearTimeout(timerId);
+      timerId = null;
+    }
+
+    await commitLatestSnapshot();
+  }
+
+  function markCurrentAsSaved() {
+    const wrapped = buildSnapshotWithKey();
+    lastSavedKey = wrapped ? wrapped.key : null;
+  }
+
+  function destroy(options = {}) {
+    const {
+      flush: shouldFlush = false,
+      fireAndForget = false,
+    } = options;
+
+    if (timerId) {
+      window.clearTimeout(timerId);
+      timerId = null;
+    }
+
+    if (!shouldFlush) {
+      return Promise.resolve();
+    }
+
+    if (fireAndForget) {
+      void commitLatestSnapshot();
+      return Promise.resolve();
+    }
+
+    return commitLatestSnapshot();
+  }
+
+  markCurrentAsSaved();
+
+  return {
+    schedule,
+    flush,
+    destroy,
+    markCurrentAsSaved,
+  };
+}
+
 function isShareRoute() {
   return state.route && state.route.type === "share";
 }
@@ -378,6 +605,14 @@ function getActiveProject() {
   }
 
   return state.currentProject;
+}
+
+function getActiveProjectArtistLabel() {
+  const activeProject = getActiveProject();
+  const rawArtist = activeProject && activeProject.artist
+    ? String(activeProject.artist).trim()
+    : "";
+  return rawArtist || "Unknown Artist";
 }
 
 function canCurrentViewEdit() {
@@ -542,6 +777,10 @@ function getRoute() {
   const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
   const parts = pathname.split("/").filter(Boolean);
 
+  if (parts[0] === "settings") {
+    return { type: "settings" };
+  }
+
   if (parts[0] === "share" && parts[1]) {
     return { type: "share", token: decodeURIComponent(parts[1]) };
   }
@@ -554,6 +793,13 @@ function getRoute() {
 }
 
 function navigate(path) {
+  const currentPath =
+    window.location.pathname.replace(/\/+$/, "") || "/";
+
+  if (path === "/settings" && currentPath !== "/settings") {
+    state.settings.previousPath = currentPath;
+  }
+
   if (window.location.pathname !== path) {
     window.history.pushState({}, "", path);
   }
@@ -961,7 +1207,7 @@ function playTrack(track, queue, index) {
     track.title || track.originalName || "Untitled Track";
   document.title = trackDisplayTitle + " — Studio";
   setMarqueeText(playerTitleElement, trackDisplayTitle);
-  setMarqueeText(playerSubtitleElement, ensurePlayableTrackSubtitle(track));
+  setMarqueeText(playerSubtitleElement, getActiveProjectArtistLabel());
   playerCurrentTimeElement.textContent = "0:00";
   playerDurationElement.textContent = "0:00";
 
@@ -1401,6 +1647,7 @@ async function autoAnalyzeTrack(trackId, audioUrl) {
     if (state.trackMenu.bpm === null) state.trackMenu.bpm = result.bpm;
     if (state.trackMenu.key === null) state.trackMenu.key = result.key;
     renderTrackMenuPhase2();
+    queueTrackMenuAutosave();
   } catch (_e) {
     // Silent fail — user can still click Analyze manually
   } finally {
@@ -1463,6 +1710,172 @@ async function saveTrack(projectId, trackId, fields) {
   updateActiveProjectFromPayload(payload.project);
 }
 
+function buildTrackMenuSaveSnapshot() {
+  if (!state.trackMenu.trackId) {
+    return null;
+  }
+
+  const notesInput = document.getElementById("track-menu-notes");
+  const lyricsInput = document.getElementById("track-menu-lyrics");
+  const bpmInput = document.getElementById("track-bpm-input");
+  const keySelect = document.getElementById("track-key-select");
+  const trackStatusSelect = document.getElementById("track-status-select");
+
+  const notes = String(
+    notesInput ? notesInput.value : state.trackMenu.notes,
+  ).slice(0, 4000);
+  const lyrics = String(
+    lyricsInput ? lyricsInput.value : state.trackMenu.lyrics,
+  ).slice(0, 12000);
+  const bpm = bpmInput
+    ? bpmInput.value !== ""
+      ? Number(bpmInput.value)
+      : null
+    : state.trackMenu.bpm;
+  const key = keySelect ? keySelect.value || null : state.trackMenu.key;
+  const trackStatus = trackStatusSelect
+    ? trackStatusSelect.value || null
+    : state.trackMenu.trackStatus;
+  const todos = (state.trackMenu.todos || [])
+    .map((todo) => normalizeTodoItem(todo))
+    .filter((todo) => todo !== null);
+
+  return {
+    trackId: state.trackMenu.trackId,
+    notes,
+    lyrics,
+    todos,
+    bpm,
+    key,
+    trackStatus,
+    moodTags: [...(state.trackMenu.moodTags || [])],
+    lufs: state.trackMenu.lufs,
+    peakDb: state.trackMenu.peakDb,
+  };
+}
+
+async function persistTrackMenuSnapshot(projectId, snapshot) {
+  if (!snapshot || !snapshot.trackId) {
+    return;
+  }
+
+  await saveTrack(projectId, snapshot.trackId, {
+    notes: snapshot.notes,
+    lyrics: snapshot.lyrics,
+    todos: snapshot.todos,
+    bpm: snapshot.bpm,
+    key: snapshot.key,
+    trackStatus: snapshot.trackStatus,
+    moodTags: snapshot.moodTags,
+    lufs: snapshot.lufs,
+    peakDb: snapshot.peakDb,
+  });
+}
+
+function setupTrackMenuAutosave(projectId) {
+  void teardownTrackMenuAutosave({ flush: true, fireAndForget: true });
+
+  trackMenuAutosaveController = createAutosaveController({
+    delayMs: 700,
+    getSnapshot: buildTrackMenuSaveSnapshot,
+    saveSnapshot: async (snapshot) => {
+      await persistTrackMenuSnapshot(projectId, snapshot);
+    },
+    onError: (error) => {
+      showToast(error.message || "Could not autosave track details");
+    },
+  });
+}
+
+function queueTrackMenuAutosave() {
+  if (!trackMenuAutosaveController) {
+    return;
+  }
+
+  trackMenuAutosaveController.schedule();
+}
+
+function teardownTrackMenuAutosave(options = {}) {
+  if (!trackMenuAutosaveController) {
+    return Promise.resolve();
+  }
+
+  const controller = trackMenuAutosaveController;
+  trackMenuAutosaveController = null;
+  return controller.destroy(options);
+}
+
+function buildMetadataPanelSnapshot() {
+  const startDateVal =
+    document.getElementById("meta-start-date-btn")?.dataset.value || "";
+  const releaseDateVal =
+    document.getElementById("meta-release-date-btn")?.dataset.value || "";
+  const completionVal = Math.max(
+    0,
+    Math.min(
+      100,
+      Math.round(Number(document.getElementById("meta-completion-range")?.value || 0)),
+    ),
+  );
+  const starVal =
+    Number(document.getElementById("meta-star-rating")?.dataset.rating) || 0;
+  const preSaveVal = String(
+    document.getElementById("meta-presave-link")?.value || "",
+  ).trim();
+  const distributorVal = String(
+    document.getElementById("meta-distributor-notes")?.value || "",
+  );
+
+  const streamingChecklist = {};
+  appRoot.querySelectorAll(".stream-checkbox").forEach((checkbox) => {
+    streamingChecklist[checkbox.dataset.platform] = checkbox.checked;
+  });
+
+  return {
+    startDate: startDateVal || null,
+    releaseDate: releaseDateVal || null,
+    completionPercent: completionVal,
+    starRating: starVal,
+    colorPalette: [...state.metadataPanel.colorPalette],
+    streamingChecklist,
+    preSaveLink: preSaveVal,
+    distributorNotes: distributorVal,
+  };
+}
+
+function setupMetadataAutosave() {
+  void teardownMetadataAutosave({ flush: false });
+
+  metadataAutosaveController = createAutosaveController({
+    delayMs: 700,
+    getSnapshot: buildMetadataPanelSnapshot,
+    saveSnapshot: async (snapshot) => {
+      await saveProject(snapshot);
+    },
+    onError: (error) => {
+      showToast(error.message || "Could not autosave metadata");
+    },
+  });
+}
+
+function queueMetadataAutosave() {
+  if (!metadataAutosaveController) {
+    return;
+  }
+
+  metadataAutosaveController.schedule();
+}
+
+function teardownMetadataAutosave(options = {}) {
+  if (!metadataAutosaveController) {
+    return Promise.resolve();
+  }
+
+  const controller = metadataAutosaveController;
+  metadataAutosaveController = null;
+  return controller.destroy(options);
+}
+
 async function uploadTrackVersion(projectId, trackId, file) {
   const formData = new FormData();
   formData.append("track", file);
@@ -1521,7 +1934,15 @@ async function selectCoverVersion(projectId, coverId) {
   updateActiveProjectFromPayload(payload.project);
 }
 
-function closeTrackMenu() {
+function closeTrackMenu(options = {}) {
+  const { flushAutosave = true } = options;
+
+  if (flushAutosave) {
+    void teardownTrackMenuAutosave({ flush: true, fireAndForget: true });
+  } else {
+    void teardownTrackMenuAutosave({ flush: false });
+  }
+
   const overlay = document.getElementById("track-menu-overlay");
   if (overlay) {
     animatedClose(overlay);
@@ -1600,6 +2021,7 @@ function renderTrackMenuTodos() {
 
       state.trackMenu.todos[todoIndex].done = checkbox.checked;
       renderTrackMenuTodos();
+      queueTrackMenuAutosave();
     });
   });
 
@@ -1611,6 +2033,7 @@ function renderTrackMenuTodos() {
       }
 
       state.trackMenu.todos[todoIndex].text = sanitizeTodoText(input.value);
+      queueTrackMenuAutosave();
     });
   });
 
@@ -1623,6 +2046,7 @@ function renderTrackMenuTodos() {
 
       state.trackMenu.todos.splice(todoIndex, 1);
       renderTrackMenuTodos();
+      queueTrackMenuAutosave();
     });
   });
 }
@@ -1746,9 +2170,12 @@ function addTrackMenuTodo() {
 
   input.value = "";
   renderTrackMenuTodos();
+  queueTrackMenuAutosave();
 }
 
 function openTrackMenu(trackId) {
+  void teardownTrackMenuAutosave({ flush: true, fireAndForget: true });
+
   const track = getCurrentProjectTrack(trackId);
   if (!track) {
     return;
@@ -1817,6 +2244,11 @@ function openTrackMenu(trackId) {
   renderTrackMenuVersions();
   renderTrackMenuPhase2();
 
+  const activeProject = getActiveProject();
+  if (canCurrentViewEdit() && activeProject && activeProject.id) {
+    setupTrackMenuAutosave(activeProject.id);
+  }
+
   // Auto-detect for tracks that haven't been analyzed yet
   if (canCurrentViewEdit() && track.audioUrl && track.bpm === null && track.key === null && track.lufs === null) {
     setTimeout(() => autoAnalyzeTrack(track.id, track.audioUrl), 300);
@@ -1824,50 +2256,16 @@ function openTrackMenu(trackId) {
 }
 
 async function saveTrackMenu(projectId) {
-  if (!state.trackMenu.trackId) {
+  const snapshot = buildTrackMenuSaveSnapshot();
+  if (!snapshot) {
     return;
   }
 
-  const notesInput = document.getElementById("track-menu-notes");
-  const lyricsInput = document.getElementById("track-menu-lyrics");
-
-  state.trackMenu.notes = String(notesInput ? notesInput.value : "").slice(
-    0,
-    4000,
-  );
-  state.trackMenu.lyrics = String(lyricsInput ? lyricsInput.value : "").slice(
-    0,
-    12000,
-  );
-
-  const todosPayload = (state.trackMenu.todos || [])
-    .map((todo) => normalizeTodoItem(todo))
-    .filter((todo) => todo !== null);
-
-  // Read Phase 2 fields from UI
-  const bpmInput = document.getElementById("track-bpm-input");
-  const keySelect = document.getElementById("track-key-select");
-  const trackStatusSelect = document.getElementById("track-status-select");
-
-  const bpmValue = bpmInput ? (bpmInput.value !== "" ? Number(bpmInput.value) : null) : state.trackMenu.bpm;
-  const keyValue = keySelect ? (keySelect.value || null) : state.trackMenu.key;
-  const trackStatusValue = trackStatusSelect ? (trackStatusSelect.value || null) : state.trackMenu.trackStatus;
-
-  await saveTrack(projectId, state.trackMenu.trackId, {
-    notes: state.trackMenu.notes,
-    lyrics: state.trackMenu.lyrics,
-    todos: todosPayload,
-    bpm: bpmValue,
-    key: keyValue,
-    trackStatus: trackStatusValue,
-    moodTags: state.trackMenu.moodTags,
-    lufs: state.trackMenu.lufs,
-    peakDb: state.trackMenu.peakDb,
-  });
-
+  await persistTrackMenuSnapshot(projectId, snapshot);
+  if (trackMenuAutosaveController) {
+    trackMenuAutosaveController.markCurrentAsSaved();
+  }
   showToast("Track details saved");
-  closeTrackMenu();
-  renderProjectView();
 }
 
 async function deleteTrackFromMenu(projectId) {
@@ -1887,7 +2285,7 @@ async function deleteTrackFromMenu(projectId) {
   });
 
   updateActiveProjectFromPayload(payload.project);
-  closeTrackMenu();
+  closeTrackMenu({ flushAutosave: false });
   renderProjectView();
 }
 
@@ -1906,6 +2304,7 @@ function renderTrackMenuPhase2() {
   if (keySelect) {
     keySelect.value = state.trackMenu.key || "";
     keySelect.disabled = !canEdit;
+    updateTrackKeySelectAppearance(keySelect);
   }
   const camelotBadgeEl = document.getElementById("track-camelot-badge");
   if (camelotBadgeEl) {
@@ -1916,6 +2315,8 @@ function renderTrackMenuPhase2() {
       camelotBadgeEl.style.cssText = `background:${color}26;color:${color};border-color:${color}55`;
       camelotBadgeEl.hidden = false;
     } else {
+      camelotBadgeEl.textContent = "";
+      camelotBadgeEl.style.cssText = "";
       camelotBadgeEl.hidden = true;
     }
   }
@@ -1931,7 +2332,9 @@ function renderTrackMenuPhase2() {
   // Mood tags
   const moodWrap = document.getElementById("track-mood-tags");
   if (moodWrap) {
-    renderMoodTags(moodWrap, canEdit);
+    renderMoodTags(moodWrap, canEdit, () => {
+      queueTrackMenuAutosave();
+    });
   }
 
   // Listen count
@@ -1954,6 +2357,14 @@ function updateTrackStatusSelectColor(selectEl) {
   selectEl.style.boxShadow = color ? `0 0 0 1px ${color}44` : "";
 }
 
+function updateTrackKeySelectAppearance(selectEl) {
+  if (!selectEl) {
+    return;
+  }
+
+  selectEl.classList.toggle("is-empty", !selectEl.value);
+}
+
 function camelotBadgeHtml(key) {
   if (!key) return "";
   const code = CAMELOT_MAP[key];
@@ -1962,7 +2373,7 @@ function camelotBadgeHtml(key) {
   return `<span class="camelot-badge" style="background:${color}26;color:${color};border-color:${color}55">${escapeHtml(code)}</span>`;
 }
 
-function renderMoodTags(container, canEdit) {
+function renderMoodTags(container, canEdit, onChange) {
   const activeTags = state.trackMenu.moodTags || [];
   container.innerHTML = MOOD_TAG_OPTIONS.map((tag) => {
     const isActive = activeTags.includes(tag);
@@ -1990,7 +2401,10 @@ function renderMoodTags(container, canEdit) {
       } else {
         state.trackMenu.moodTags.push(tag);
       }
-      renderMoodTags(container, canEdit);
+      renderMoodTags(container, canEdit, onChange);
+      if (typeof onChange === "function") {
+        onChange();
+      }
     });
   });
 }
@@ -2026,6 +2440,8 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   const playButton = document.getElementById("track-menu-play");
   const todoAddButton = document.getElementById("track-todo-add");
   const todoInput = document.getElementById("track-todo-input");
+  const notesInput = document.getElementById("track-menu-notes");
+  const lyricsInput = document.getElementById("track-menu-lyrics");
   const versionAddButton = document.getElementById("track-version-add");
   const versionInput = document.getElementById("track-version-input");
 
@@ -2123,6 +2539,20 @@ function bindTrackMenuInteractions(projectId, options = {}) {
     });
   }
 
+  if (notesInput && canEdit) {
+    notesInput.addEventListener("input", () => {
+      state.trackMenu.notes = String(notesInput.value || "").slice(0, 4000);
+      queueTrackMenuAutosave();
+    });
+  }
+
+  if (lyricsInput && canEdit) {
+    lyricsInput.addEventListener("input", () => {
+      state.trackMenu.lyrics = String(lyricsInput.value || "").slice(0, 12000);
+      queueTrackMenuAutosave();
+    });
+  }
+
   if (versionAddButton && versionInput) {
     versionAddButton.addEventListener("click", () => {
       if (!canEdit || !state.trackMenu.trackId) {
@@ -2171,20 +2601,29 @@ function bindTrackMenuInteractions(projectId, options = {}) {
         return;
       }
 
+      const activeTrackId = state.trackMenu.trackId;
+
       lufsAnalyzeBtn.disabled = true;
       lufsAnalyzeBtn.textContent = "Analyzing…";
 
       try {
         const result = await analyzeAudio(track.audioUrl);
+        if (state.trackMenu.trackId !== activeTrackId) {
+          return;
+        }
         state.trackMenu.lufs = result.lufs;
         state.trackMenu.peakDb = result.peakDb;
         state.trackMenu.bpm = result.bpm ?? state.trackMenu.bpm;
         state.trackMenu.key = result.key ?? state.trackMenu.key;
         renderTrackMenuPhase2();
+        queueTrackMenuAutosave();
         showToast("Audio analysis complete");
       } catch (error) {
         showToast(error.message || "Analysis failed");
       } finally {
+        if (state.trackMenu.trackId !== activeTrackId) {
+          return;
+        }
         const btn = document.getElementById("track-lufs-analyze");
         if (btn) btn.disabled = false;
         renderLufsDisplay();
@@ -2193,17 +2632,31 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   }
 
   // Track status color update on change
+  const trackBpmInput = document.getElementById("track-bpm-input");
+  if (trackBpmInput && canEdit) {
+    trackBpmInput.addEventListener("input", () => {
+      state.trackMenu.bpm =
+        trackBpmInput.value === "" ? null : Number(trackBpmInput.value);
+      queueTrackMenuAutosave();
+    });
+  }
+
   const trackStatusSelect = document.getElementById("track-status-select");
   if (trackStatusSelect && canEdit) {
     trackStatusSelect.addEventListener("change", () => {
+      state.trackMenu.trackStatus = trackStatusSelect.value || null;
       updateTrackStatusSelectColor(trackStatusSelect);
+      queueTrackMenuAutosave();
     });
   }
 
   // Camelot badge live update on key change
   const trackKeySelect = document.getElementById("track-key-select");
-  if (trackKeySelect) {
+  if (trackKeySelect && canEdit) {
     trackKeySelect.addEventListener("change", () => {
+      state.trackMenu.key = trackKeySelect.value || null;
+      updateTrackKeySelectAppearance(trackKeySelect);
+
       const camelotBadgeEl = document.getElementById("track-camelot-badge");
       if (!camelotBadgeEl) return;
       const code = trackKeySelect.value ? CAMELOT_MAP[trackKeySelect.value] : null;
@@ -2213,8 +2666,12 @@ function bindTrackMenuInteractions(projectId, options = {}) {
         camelotBadgeEl.style.cssText = `background:${color}26;color:${color};border-color:${color}55`;
         camelotBadgeEl.hidden = false;
       } else {
+        camelotBadgeEl.textContent = "";
+        camelotBadgeEl.style.cssText = "";
         camelotBadgeEl.hidden = true;
       }
+
+      queueTrackMenuAutosave();
     });
   }
 }
@@ -2865,7 +3322,7 @@ function renderHomeView() {
 
   const sortMenuItems = HOME_SORT_OPTIONS.map((opt) => {
     const isActive = opt.key === state.homeSort.key;
-    return `<button class="sort-menu-item${isActive ? " sort-menu-item--active" : ""}" type="button" data-sort-key="${opt.key}" data-sort-dir="${opt.dir}">${opt.label}${isActive ? (state.homeSort.dir === "asc" ? " ↑" : " ↓") : ""}</button>`;
+    return `<button class="sort-menu-item ui-dropdown-item${isActive ? " sort-menu-item--active" : ""}" type="button" data-sort-key="${opt.key}" data-sort-dir="${opt.dir}">${opt.label}${isActive ? (state.homeSort.dir === "asc" ? " ↑" : " ↓") : ""}</button>`;
   }).join("");
 
   appRoot.innerHTML = `
@@ -2875,16 +3332,19 @@ function renderHomeView() {
           <h1 class="brand">Studio</h1>
           <p class="brand-sub">Private workspace for works in progress</p>
         </div>
-        <button id="logout-button" class="text-button" type="button">Logout</button>
+        <div class="topbar-actions">
+          <button id="open-settings-button" class="circle-button" type="button" aria-label="Open settings" title="Settings">${icon("settings")}</button>
+          <button id="logout-button" class="text-button" type="button">Logout</button>
+        </div>
       </header>
 
       <section class="home-actions">
-        <button id="create-project-button" class="primary-button" type="button">New Project</button>
+        <button id="create-project-button" class="primary-button" type="button">${icon("plus")} New Project</button>
         <div class="sort-wrap">
-          <button id="sort-button" class="sort-button" type="button" aria-haspopup="true" aria-expanded="false">
+          <button id="sort-button" class="sort-button ui-dropdown-trigger" type="button" aria-haspopup="true" aria-expanded="false">
             ${icon("sort")} ${escapeHtml(activeSortLabel)}
           </button>
-          <div id="sort-menu" class="sort-menu hidden">
+          <div id="sort-menu" class="sort-menu ui-dropdown-menu hidden">
             ${sortMenuItems}
           </div>
         </div>
@@ -2895,6 +3355,12 @@ function renderHomeView() {
       </section>
     </section>
   `;
+
+  document
+    .getElementById("open-settings-button")
+    .addEventListener("click", () => {
+      navigate("/settings");
+    });
 
   document
     .getElementById("logout-button")
@@ -2979,28 +3445,31 @@ function projectTrackHtml(track, listIndex) {
   const canEdit = canCurrentViewEdit();
   const canReorder = canEdit && !isShareRoute();
   const canListen = canCurrentViewListen();
+  const trackTagVisibility = normalizeTrackTagVisibility(
+    state.settings.trackTagVisibility,
+  );
   const createdOn = formatShortDate(track.createdAt) || "No date";
   const todos = normalizeTodos(track.todos);
   const openTodoCount = todos.filter((todo) => !todo.done).length;
   const activeVersion = getActiveTrackVersion(track);
   const badges = [];
 
-  if (track.versionCount > 1) {
+  if (trackTagVisibility.contextBadges && track.versionCount > 1) {
     badges.push(`<span class="track-badge">v${track.versionCount}</span>`);
   }
-  if (activeVersion && activeVersion.originalName) {
+  if (trackTagVisibility.contextBadges && activeVersion && activeVersion.originalName) {
     badges.push(
       `<span class="track-badge track-badge-filename marquee-wrap"><span class="marquee-inner">${escapeHtml(activeVersion.originalName)}</span></span>`,
     );
   }
 
-  if (track.notes) {
+  if (trackTagVisibility.contextBadges && track.notes) {
     badges.push('<span class="track-badge">Notes</span>');
   }
-  if (track.lyrics) {
+  if (trackTagVisibility.contextBadges && track.lyrics) {
     badges.push('<span class="track-badge">Lyrics</span>');
   }
-  if (todos.length) {
+  if (trackTagVisibility.contextBadges && todos.length) {
     badges.push(
       `<span class="track-badge">Todos ${openTodoCount}/${todos.length}</span>`,
     );
@@ -3008,21 +3477,61 @@ function projectTrackHtml(track, listIndex) {
 
   // Phase 2 inline badges
   const trackStatusColor = track.trackStatus ? (TRACK_STATUS_COLORS[track.trackStatus] || "") : "";
-  const trackStatusBadge = track.trackStatus
+  const trackStatusBadge = trackTagVisibility.status && track.trackStatus
     ? `<span class="track-status-pill" style="background:${trackStatusColor}22;color:${trackStatusColor};border-color:${trackStatusColor}55">${escapeHtml(track.trackStatus)}</span>`
     : "";
 
-  const moodChipsHtml = Array.isArray(track.moodTags) && track.moodTags.length
+  const moodChipsHtml =
+    trackTagVisibility.moodTags && Array.isArray(track.moodTags) && track.moodTags.length
     ? track.moodTags.map((tag) => {
         const c = MOOD_TAG_COLORS[tag] || "#555";
         return `<span class="track-mood-chip" style="background:${c}22;color:${c};border-color:${c}55">${escapeHtml(tag)}</span>`;
       }).join("")
     : "";
 
-  const inlineMeta = [];
-  if (track.bpm) inlineMeta.push(`<span class="track-inline-meta">${escapeHtml(String(track.bpm))} BPM</span>`);
-  if (track.key) inlineMeta.push(`${camelotBadgeHtml(track.key)}<span class="track-inline-meta">${escapeHtml(track.key)}</span>`);
-  if (track.listenCount) inlineMeta.push(`<span class="track-inline-meta">${escapeHtml(String(track.listenCount))} plays</span>`);
+  const trackMetaSegments = [];
+  const activeFileName = track.originalName || activeVersion?.originalName || "";
+
+  if (trackTagVisibility.date) {
+    trackMetaSegments.push(
+      `<span class="track-date">${escapeHtml(createdOn)}</span>`,
+    );
+  }
+
+  if (trackTagVisibility.fileName && activeFileName) {
+    trackMetaSegments.push(
+      `<span class="track-file-name">${escapeHtml(activeFileName)}</span>`,
+    );
+  }
+
+  if (trackTagVisibility.bpm && track.bpm) {
+    trackMetaSegments.push(
+      `<span class="track-inline-meta">${escapeHtml(String(track.bpm))} BPM</span>`,
+    );
+  }
+
+  if (trackTagVisibility.key && track.key) {
+    trackMetaSegments.push(
+      `${camelotBadgeHtml(track.key)}<span class="track-inline-meta">${escapeHtml(track.key)}</span>`,
+    );
+  }
+
+  if (trackTagVisibility.playCount && track.listenCount) {
+    trackMetaSegments.push(
+      `<span class="track-inline-meta">${escapeHtml(String(track.listenCount))} plays</span>`,
+    );
+  }
+
+  const trackMetaHtml = trackMetaSegments
+    .map((segment, index) => {
+      if (index === 0) {
+        return segment;
+      }
+      return `<span class="stats-dot track-meta-dot">&middot;</span>${segment}`;
+    })
+    .join("");
+
+  const hasBottomRow = badges.length || trackStatusBadge;
 
   return `
     <article class="track-row" data-track-id="${escapeHtml(track.id)}" draggable="${canReorder ? "true" : "false"}">
@@ -3040,17 +3549,15 @@ function projectTrackHtml(track, listIndex) {
         </div>
 
         <div class="track-meta-line">
-          <span class="track-date">${escapeHtml(createdOn)}</span>
-          <span class="track-file-name">${escapeHtml(track.originalName || activeVersion?.originalName || "")}</span>
-          ${inlineMeta.join("")}
+          ${trackMetaHtml}
         </div>
 
         ${moodChipsHtml ? `<div class="track-mood-chips-row">${moodChipsHtml}</div>` : ""}
 
-        <div class="track-bottom-row">
+        ${hasBottomRow ? `<div class="track-bottom-row">
           <div class="track-badges">${badges.join("")}</div>
           ${trackStatusBadge}
-        </div>
+        </div>` : ""}
       </div>
       <button class="icon-button track-play-button" type="button" data-play-track="${escapeHtml(track.id)}" title="Play track" ${canListen ? "" : "disabled"}>${icon("play")}</button>
       <button class="icon-button track-menu-button" type="button" data-track-menu="${escapeHtml(track.id)}" title="Track options">${icon("more")}</button>
@@ -3066,6 +3573,9 @@ function statusOptionsHtml(status) {
 }
 
 function renderProjectView() {
+  void teardownTrackMenuAutosave({ flush: false });
+  void teardownMetadataAutosave({ flush: false });
+
   const project = getActiveProject();
   if (!project) {
     renderErrorState("Project not found", true);
@@ -3133,7 +3643,7 @@ function renderProjectView() {
       <header class="project-chrome">
           <button id="back-home-button" class="circle-button" type="button" aria-label="Back to library">${icon("back")}</button>
         <div class="chrome-actions">
-            ${showOwnerShareManager ? `<button id="delete-project-button" class="circle-button danger" type="button" aria-label="Delete project" title="Delete project">${icon("trash")}</button><button id="logout-button" class="circle-button" type="button" aria-label="Log out">${icon("logout")}</button>` : ""}
+            ${showOwnerShareManager ? `<button id="open-settings-button" class="circle-button" type="button" aria-label="Open settings" title="Settings">${icon("settings")}</button><button id="delete-project-button" class="circle-button danger" type="button" aria-label="Delete project" title="Delete project">${icon("trash")}</button><button id="logout-button" class="circle-button" type="button" aria-label="Log out">${icon("logout")}</button>` : ""}
         </div>
       </header>
 
@@ -3184,7 +3694,7 @@ function renderProjectView() {
             <button id="upload-tracks-button" class="add-tracks-button" type="button" ${canEdit ? "" : "disabled"}>+ Add tracks</button>
 
             <div class="project-secondary-controls">
-              <select id="project-status" class="project-status-select" title="Status" aria-label="Status" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
+              <select id="project-status" class="project-status-select ui-select" title="Status" aria-label="Status" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
               <button id="open-metadata-button" class="secondary-button panel-trigger-btn" type="button">${icon("metadata")} Metadata</button>
               <button id="open-notes-button" class="secondary-button panel-trigger-btn" type="button">${icon("notes")} Notes</button>
               ${showOwnerShareManager ? `<button id="open-share-button" class="secondary-button panel-trigger-btn" type="button">${icon("link")} Share</button>` : ""}
@@ -3238,7 +3748,7 @@ function renderProjectView() {
             <div class="track-meta-col">
               <label for="track-key-select">Key</label>
               <div class="track-key-row">
-                <select id="track-key-select" class="track-key-select" ${canEdit ? "" : "disabled"}>
+                <select id="track-key-select" class="track-key-select ui-select" ${canEdit ? "" : "disabled"}>
                   <option value="">—</option>
                   ${MUSICAL_KEYS.map((k) => `<option value="${escapeHtml(k)}">${escapeHtml(k)}</option>`).join("")}
                 </select>
@@ -3250,7 +3760,7 @@ function renderProjectView() {
           <div class="track-menu-field track-meta-row">
             <div class="track-meta-col">
               <label for="track-status-select">Status</label>
-              <select id="track-status-select" class="track-status-select" ${canEdit ? "" : "disabled"}>
+              <select id="track-status-select" class="track-status-select ui-select" ${canEdit ? "" : "disabled"}>
                 <option value="">—</option>
                 ${TRACK_STATUS_OPTIONS.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}
               </select>
@@ -3330,7 +3840,7 @@ function renderProjectView() {
             <div class="share-manager">
               <div class="share-create-row">
                 <label for="share-access-select">Share Access</label>
-                <select id="share-access-select" class="project-status-select">${shareAccessOptionsHtml("listen")}</select>
+                <select id="share-access-select" class="project-status-select ui-select">${shareAccessOptionsHtml("listen")}</select>
                 <button id="share-create-button" class="secondary-button" type="button">Create Share Link</button>
               </div>
               <div id="share-links-list" class="share-links-list">
@@ -3446,6 +3956,8 @@ function renderProjectView() {
 }
 
 function bindMetadataPanelInteractions(projectId, canEdit) {
+  void teardownMetadataAutosave({ flush: false });
+
   const panel = document.getElementById("metadata-panel");
   const closeBtn = document.getElementById("metadata-panel-close");
   const openBtn = document.getElementById("open-metadata-button");
@@ -3461,6 +3973,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
   function closePanel() {
     ColorPicker.close();
     DatePicker.close();
+    void teardownMetadataAutosave({ flush: true, fireAndForget: true });
     animatedClose(panel);
   }
 
@@ -3478,7 +3991,11 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
     if (event.target === panel) closePanel();
   });
 
-  if (!canEdit) return;
+  if (!canEdit) {
+    return;
+  }
+
+  setupMetadataAutosave();
 
   // Date picker buttons
   function bindDateBtn(btnId, onCommit) {
@@ -3506,14 +4023,20 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
     countdownEl.innerHTML = buildDeadlineCountdownHtml(val);
   }
 
-  bindDateBtn("meta-start-date-btn", () => {});
-  bindDateBtn("meta-release-date-btn", updateDeadlineCountdown);
+  bindDateBtn("meta-start-date-btn", () => {
+    queueMetadataAutosave();
+  });
+  bindDateBtn("meta-release-date-btn", (val) => {
+    updateDeadlineCountdown(val);
+    queueMetadataAutosave();
+  });
 
   // Completion slider ↔ number input sync
   if (completionRange && completionNum && completionDisplay) {
     completionRange.addEventListener("input", () => {
       completionNum.value = completionRange.value;
       completionDisplay.textContent = completionRange.value + "%";
+      queueMetadataAutosave();
     });
     completionNum.addEventListener("input", () => {
       const clamped = Math.max(
@@ -3522,6 +4045,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
       );
       completionRange.value = clamped;
       completionDisplay.textContent = clamped + "%";
+      queueMetadataAutosave();
     });
   }
 
@@ -3536,6 +4060,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
         starWidget
           .querySelectorAll(".star-btn")
           .forEach((s, i) => s.classList.toggle("active", i + 1 <= newRating));
+        queueMetadataAutosave();
       });
     });
   }
@@ -3563,6 +4088,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
           state.metadataPanel.colorPalette[idx] = hex;
           swatch.style.background = hex;
           swatch.setAttribute("aria-label", `Edit color ${idx + 1}: ${hex}`);
+          queueMetadataAutosave();
         });
       };
       swatch.addEventListener("click", openPicker);
@@ -3578,6 +4104,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
           ColorPicker.close();
           state.metadataPanel.colorPalette.splice(idx, 1);
           rebuildColorPalette();
+          queueMetadataAutosave();
         }
       });
     });
@@ -3588,6 +4115,7 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
         if (state.metadataPanel.colorPalette.length < 5) {
           state.metadataPanel.colorPalette.push("#a89eff");
           rebuildColorPalette();
+          queueMetadataAutosave();
         }
       });
     }
@@ -3595,39 +4123,35 @@ function bindMetadataPanelInteractions(projectId, canEdit) {
 
   bindColorPaletteEvents();
 
-  // Save
+  appRoot.querySelectorAll(".stream-checkbox").forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      queueMetadataAutosave();
+    });
+  });
+
+  const preSaveInput = document.getElementById("meta-presave-link");
+  if (preSaveInput) {
+    preSaveInput.addEventListener("input", () => {
+      queueMetadataAutosave();
+    });
+  }
+
+  const distributorInput = document.getElementById("meta-distributor-notes");
+  if (distributorInput) {
+    distributorInput.addEventListener("input", () => {
+      queueMetadataAutosave();
+    });
+  }
+
+  // Optional manual flush
   if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
-      const startDateVal   = document.getElementById("meta-start-date-btn")?.dataset.value   || "";
-      const releaseDateVal = document.getElementById("meta-release-date-btn")?.dataset.value || "";
-      const completionVal = completionRange
-        ? Math.max(0, Math.min(100, Math.round(Number(completionRange.value) || 0)))
-        : 0;
-      const starVal = starWidget ? Number(starWidget.dataset.rating) || 0 : 0;
-      const preSaveVal =
-        document.getElementById("meta-presave-link")?.value || "";
-      const distributorVal =
-        document.getElementById("meta-distributor-notes")?.value || "";
-
-      const streamingChecklist = {};
-      document.querySelectorAll(".stream-checkbox").forEach((cb) => {
-        streamingChecklist[cb.dataset.platform] = cb.checked;
-      });
-
       try {
-        await saveProject({
-          startDate: startDateVal || null,
-          releaseDate: releaseDateVal || null,
-          completionPercent: completionVal,
-          starRating: starVal,
-          colorPalette: [...state.metadataPanel.colorPalette],
-          streamingChecklist,
-          preSaveLink: preSaveVal,
-          distributorNotes: distributorVal,
-        });
+        if (metadataAutosaveController) {
+          await metadataAutosaveController.flush();
+          metadataAutosaveController.markCurrentAsSaved();
+        }
         showToast("Metadata saved");
-        closePanel();
-        renderProjectView();
       } catch (error) {
         showToast(error.message || "Could not save metadata");
       }
@@ -3698,6 +4222,14 @@ function bindProjectViewInteractions() {
   }
 
   const logoutButton = document.getElementById("logout-button");
+  const openSettingsButton = document.getElementById("open-settings-button");
+
+  if (openSettingsButton) {
+    openSettingsButton.addEventListener("click", () => {
+      navigate("/settings");
+    });
+  }
+
   if (logoutButton) {
     logoutButton.addEventListener("click", async () => {
       try {
@@ -4136,6 +4668,99 @@ function bindTrackDragAndDrop(projectId) {
   });
 }
 
+function renderSettingsView() {
+  const trackTagVisibility = normalizeTrackTagVisibility(
+    state.settings.trackTagVisibility,
+  );
+  state.settings.trackTagVisibility = { ...trackTagVisibility };
+
+  const visibilityRows = TRACK_TAG_VISIBILITY_FIELDS.map((field) => {
+    const checked = trackTagVisibility[field.key] ? "checked" : "";
+    return `
+      <label class="settings-toggle-row" for="setting-${escapeHtml(field.key)}">
+        <span class="settings-toggle-copy">
+          <span class="settings-toggle-label">${escapeHtml(field.label)}</span>
+          <span class="settings-toggle-desc">${escapeHtml(field.description)}</span>
+        </span>
+        <input id="setting-${escapeHtml(field.key)}" class="settings-toggle-input" type="checkbox" data-track-tag-setting="${escapeHtml(field.key)}" ${checked} />
+      </label>
+    `;
+  }).join("");
+
+  appRoot.innerHTML = `
+    <section class="view settings-view">
+      <header class="project-chrome settings-chrome">
+        <button id="settings-back-button" class="circle-button" type="button" aria-label="Back">${icon("back")}</button>
+        <div class="chrome-actions">
+          <button id="settings-logout-button" class="circle-button" type="button" aria-label="Log out">${icon("logout")}</button>
+        </div>
+      </header>
+
+      <section class="settings-panel">
+        <h1 class="settings-title">Settings</h1>
+        <p class="settings-subtitle">Choose which track tags are visible in project rows.</p>
+
+        <div class="settings-card">
+          <div class="settings-card-head">
+            <h2>Track Tag Visibility</h2>
+            <button id="settings-reset-tags" class="secondary-button" type="button">Reset Defaults</button>
+          </div>
+          <div class="settings-toggle-list">
+            ${visibilityRows}
+          </div>
+        </div>
+      </section>
+    </section>
+  `;
+
+  const backButton = document.getElementById("settings-back-button");
+  if (backButton) {
+    backButton.addEventListener("click", () => {
+      const previousPath = state.settings.previousPath || "/";
+      navigate(previousPath === "/settings" ? "/" : previousPath);
+    });
+  }
+
+  const logoutButton = document.getElementById("settings-logout-button");
+  if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+      try {
+        await apiRequest("/api/logout", { method: "POST" });
+        state.authenticated = false;
+        state.currentProject = null;
+        state.sharedProject = null;
+        navigate("/");
+      } catch (error) {
+        showToast(error.message || "Could not log out");
+      }
+    });
+  }
+
+  appRoot.querySelectorAll("[data-track-tag-setting]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const key = input.dataset.trackTagSetting;
+      if (!Object.prototype.hasOwnProperty.call(TRACK_TAG_VISIBILITY_DEFAULTS, key)) {
+        return;
+      }
+
+      state.settings.trackTagVisibility[key] = Boolean(input.checked);
+      persistUiSettings();
+    });
+  });
+
+  const resetButton = document.getElementById("settings-reset-tags");
+  if (resetButton) {
+    resetButton.addEventListener("click", () => {
+      state.settings.trackTagVisibility = {
+        ...TRACK_TAG_VISIBILITY_DEFAULTS,
+      };
+      persistUiSettings();
+      renderSettingsView();
+      showToast("Tag visibility reset");
+    });
+  }
+}
+
 function renderSharedView() {
   const project = state.sharedProject;
   if (!project) {
@@ -4316,6 +4941,9 @@ async function renderShareRoute(token) {
 }
 
 async function renderRoute() {
+  void teardownTrackMenuAutosave({ flush: true, fireAndForget: true });
+  void teardownMetadataAutosave({ flush: true, fireAndForget: true });
+
   const route = getRoute();
   state.route = route;
 
@@ -4336,6 +4964,11 @@ async function renderRoute() {
 
   if (!state.authenticated) {
     renderLoginView();
+    return;
+  }
+
+  if (route.type === "settings") {
+    renderSettingsView();
     return;
   }
 
@@ -4366,6 +4999,7 @@ async function renderRoute() {
 }
 
 function startApp() {
+  loadUiSettings();
   initializePlayer();
   window.addEventListener("popstate", () => {
     renderRoute();
