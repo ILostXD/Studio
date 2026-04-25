@@ -884,7 +884,6 @@ textarea {
   font-size: clamp(28px, 3.8vw, 38px);
   line-height: 1.05;
   letter-spacing: 0.01em;
-  text-transform: uppercase;
 }
 
 .project-stats-row {
