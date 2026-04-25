@@ -1,0 +1,16 @@
+services:
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: studio
+    environment:
+      APP_PASSWORD: ${APP_PASSWORD:-studio}
+      PORT: ${PORT:-3000}
+      SESSION_SECRET: ${SESSION_SECRET:-studio-session-secret}
+      DATA_DIR: /data
+    volumes:
+      - ${DATA_PATH:-./data}:/data
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    restart: unless-stopped

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Studio</title>
+    <link rel="icon" href="/Studio.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://unpkg.com/wavesurfer.js@7"></script>
+  </head>
+  <body>
+    <main id="app"></main>
+
+    <section id="player" class="player hidden" aria-label="Audio player">
+      <div class="player-main">
+        <div class="player-track">
+          <div
+            id="player-cover-art"
+            class="player-cover-art"
+            aria-hidden="true"
+          >
+            S
+          </div>
+          <div class="player-meta">
+            <div id="player-album-title" class="player-album-title"></div>
+            <div id="player-track-title" class="player-track-title">
+              No track loaded
+            </div>
+            <div id="player-track-subtitle" class="player-track-subtitle"></div>
+          </div>
+        </div>
+
+        <div id="waveform" class="waveform"></div>
+
+        <div class="player-tail">
+          <div class="player-time" aria-live="polite">
+            <span id="player-current-time">0:00</span>
+            <span>/</span>
+            <span id="player-duration">0:00</span>
+          </div>
+
+          <div class="player-controls">
+            <button
+              id="player-prev"
+              class="player-btn"
+              type="button"
+              aria-label="Previous track"
+            ></button>
+            <button
+              id="player-play"
+              class="player-btn primary"
+              type="button"
+              aria-label="Play or pause"
+            ></button>
+            <button
+              id="player-next"
+              class="player-btn"
+              type="button"
+              aria-label="Next track"
+            ></button>
+          </div>
+
+          <div class="player-extra-controls">
+            <div class="player-queue-wrap">
+              <button
+                id="player-queue-btn"
+                class="player-btn"
+                type="button"
+                aria-label="View queue"
+              ></button>
+              <div
+                id="player-queue-popover"
+                class="player-queue-popover"
+                aria-hidden="true"
+              >
+                <div class="player-queue-header">Queue</div>
+                <div id="player-queue-list" class="player-queue-list"></div>
+              </div>
+            </div>
+            <button
+              id="player-shuffle-btn"
+              class="player-btn"
+              type="button"
+              aria-label="Toggle shuffle"
+            ></button>
+            <button
+              id="player-loop-btn"
+              class="player-btn"
+              type="button"
+              aria-label="Toggle loop"
+            ></button>
+          </div>
+
+          <div class="player-volume" aria-label="Volume control">
+            <button
+              id="player-volume-toggle"
+              class="player-btn player-volume-btn"
+              type="button"
+              aria-label="Mute or unmute"
+            ></button>
+            <div class="player-volume-popover">
+              <input
+                id="player-volume"
+                class="player-volume-slider"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value="0.85"
+                aria-label="Volume"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+
+    <div
+      id="confirm-dialog"
+      class="confirm-dialog-overlay hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-message"
+    >
+      <div class="confirm-dialog">
+        <p id="confirm-dialog-message" class="confirm-dialog-message"></p>
+        <div class="confirm-dialog-actions">
+          <button
+            id="confirm-dialog-cancel"
+            class="secondary-button"
+            type="button"
+          >
+            Cancel
+          </button>
+          <button id="confirm-dialog-ok" class="primary-button" type="button">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "studio-app",
+  "version": "1.0.0",
+  "description": "Self-hosted private music project workspace",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node server.js --api-only",
+    "dev:web": "vite --host --port 5173",
+    "build:web": "vite build",
+    "preview:web": "vite preview --host --port 4173"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "morgan": "^1.10.0",
+    "multer": "^2.0.2",
+    "music-metadata": "^11.12.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "vite": "^6.3.5"
+  }
+}
