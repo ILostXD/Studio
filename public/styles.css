@@ -24,7 +24,9 @@ html,
 body {
   margin: 0;
   padding: 0;
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
 }
@@ -57,12 +59,19 @@ textarea {
 }
 
 #app {
-  min-height: 100vh;
-  padding: 58px clamp(52px, 11vw, 168px) 228px;
+  height: 100vh;
+  min-height: 0;
+  padding: 58px clamp(52px, 11vw, 168px) 58px;
+  isolation: isolate;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .view {
   animation: view-enter 220ms ease;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 @keyframes view-enter {
@@ -148,10 +157,14 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex: 0 0 auto;
+  min-height: 0;
   margin-bottom: 24px;
-  position: sticky;
-  top: var(--sticky-row-top);
+  padding: 0;
+  position: static;
   z-index: 40;
+  background: transparent;
+  box-shadow: none;
 }
 
 .topbar-actions {
@@ -274,14 +287,35 @@ textarea {
   background: rgba(255, 95, 120, 0.2);
 }
 
+.home-view {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.home-view .home-actions {
+  flex: 0 0 auto;
+}
+
 .project-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: max-content;
+  align-items: start;
   gap: 18px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  align-content: start;
+  overscroll-behavior: contain;
 }
 
 .project-card {
   display: block;
+  align-self: start;
+  height: fit-content;
   border: 1px solid var(--line);
   border-radius: 18px;
   overflow: hidden;
@@ -755,20 +789,27 @@ textarea {
 }
 
 .project-view {
+  min-height: 0;
   max-width: 1120px;
   margin: 0 auto;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .project-chrome {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 0 0 auto;
+  min-height: 0;
   margin-bottom: 44px;
   margin-inline: calc(-1 * clamp(52px, 11vw, 168px) + 22px);
   padding-inline: 22px;
-  position: sticky;
-  top: var(--sticky-row-top);
+  position: static;
   z-index: 45;
+  background: transparent;
+  box-shadow: none;
 }
 
 .project-chrome .icon-svg {
@@ -814,12 +855,17 @@ textarea {
 .project-stage {
   display: grid;
   grid-template-columns: minmax(240px, 400px) minmax(320px, 1fr);
-  gap: clamp(40px, 6vw, 80px);
+  gap: clamp(22px, 4vw, 48px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: visible;
   align-items: start;
 }
 
 .stage-cover {
+  width: 100%;
   max-width: 380px;
+  max-height: none;
   justify-self: center;
   border-radius: 16px;
 }
@@ -829,9 +875,11 @@ textarea {
   flex-direction: column;
   gap: 10px;
   align-items: center;
-  position: sticky;
-  top: var(--sticky-cover-top);
+  position: static;
   align-self: start;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .cover-switcher-wrap {
@@ -912,6 +960,11 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 18px;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
+  padding-bottom: 170px;
 }
 
 .project-head {
@@ -991,13 +1044,15 @@ textarea {
 
 .project-tools {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .add-tracks-button {
-  flex: 1;
+  flex: 0 0 auto;
+  min-height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.06);
@@ -1005,7 +1060,11 @@ textarea {
   padding: 8px 12px;
   font-size: 14px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   transition: border-color 150ms ease, background-color 150ms ease;
+  white-space: nowrap;
 }
 
 .add-tracks-button:hover {
@@ -1015,21 +1074,73 @@ textarea {
 
 .project-secondary-controls {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex: 1 1 360px;
+}
+
+.feature-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.feature-menu-button {
+  min-width: 84px;
+}
+
+.feature-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 120;
+  min-width: 188px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(10, 10, 12, 0.98);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.62);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.feature-menu.hidden {
+  display: none;
+}
+
+.feature-menu-item {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #d9dce6;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.feature-menu-item:hover {
+  border-color: rgba(168, 158, 255, 0.32);
+  background: rgba(168, 158, 255, 0.1);
+  color: var(--text);
 }
 
 .project-status-select {
   min-width: 132px;
-  height: auto;
+  height: 40px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  padding: 8px 12px;
+  padding: 0 12px;
   font-size: 13px;
+  line-height: 40px;
   cursor: pointer;
   transition: border-color 140ms ease, background-color 140ms ease;
   appearance: none;
@@ -1215,10 +1326,16 @@ textarea {
 }
 
 .project-view .track-line {
+  display: flex;
   gap: 0;
+  min-width: 0;
 }
 
 .project-view .track-title-editable {
+  display: inline-block;
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
   min-height: 22px;
   padding: 1px 4px 1px 0;
   font-size: 20px;
@@ -1488,6 +1605,13 @@ textarea {
   min-width: 0;
 }
 
+.version-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .version-title {
   font-size: 12px;
   color: #e2e5ef;
@@ -1505,6 +1629,19 @@ textarea {
   height: 28px;
   padding: 0 10px;
   font-size: 12px;
+}
+
+.version-delete-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-color: rgba(255, 95, 120, 0.24);
+  color: #ff9aa8;
+}
+
+.version-delete-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .track-menu-notes,
@@ -2143,7 +2280,7 @@ textarea {
 @media (max-width: 1080px) {
   .project-stage {
     grid-template-columns: minmax(210px, 320px) 1fr;
-    gap: clamp(28px, 4vw, 52px);
+    gap: clamp(20px, 3.5vw, 42px);
   }
 
   .project-view .track-title-editable {
@@ -2153,11 +2290,22 @@ textarea {
 
 @media (max-width: 840px) {
   .project-stage {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+  }
+
+  .moodboard-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .moodboard-form-inline {
     grid-template-columns: 1fr;
   }
 
   .stage-cover {
     width: min(360px, 100%);
+    max-height: none;
   }
 
   .project-head {
@@ -2167,7 +2315,7 @@ textarea {
 
   .project-tools {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
   }
 
   .share-link-item {
@@ -2181,6 +2329,24 @@ textarea {
 
   .project-secondary-controls {
     justify-content: flex-start;
+    width: 100%;
+    flex: 0 1 auto;
+  }
+
+  .feature-menu {
+    left: 0;
+    right: auto;
+  }
+
+  .cover-stack {
+    flex: 0 0 auto;
+    align-self: center;
+    width: 100%;
+  }
+
+  .project-column {
+    flex: 1 1 auto;
+    width: 100%;
   }
 
   .player {
@@ -2229,12 +2395,22 @@ textarea {
   }
 
   #app {
-    padding: 38px 30px 196px;
+    padding: 38px 30px 58px;
   }
 
   .topbar {
     align-items: flex-start;
+    flex: 0 0 auto;
     flex-direction: column;
+    min-height: 0;
+  }
+
+  .moodboard-palette {
+    grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  }
+
+  .moodboard-palette-swatch {
+    min-height: 96px;
   }
 
   .tracks-toolbar {
@@ -2526,6 +2702,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
 }
 
 /* ── General touch / mobile improvements ───────────────────── */
@@ -2533,7 +2710,7 @@ textarea {
 /* Safe-area padding on notched devices */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   #app {
-    padding-bottom: calc(228px + env(safe-area-inset-bottom));
+    padding-bottom: calc(58px + env(safe-area-inset-bottom));
   }
 
   .player {
@@ -2609,9 +2786,18 @@ textarea {
     gap: 8px;
   }
 
+  .add-tracks-button {
+    width: 100%;
+  }
+
   .project-status-select {
     min-width: 0;
     flex: 1;
+  }
+
+  .feature-menu-wrap,
+  .feature-menu-button {
+    flex: 1 1 auto;
   }
 
   .player-album-title {
@@ -3322,6 +3508,227 @@ textarea {
   color: var(--text);
 }
 
+/* ── Phase 3: Moodboard ───────────────────────────────────── */
+.panel-sheet-moodboard {
+  width: min(1080px, 100%);
+  max-height: calc(100vh - 92px);
+}
+
+.moodboard-panel-body {
+  padding: 18px 20px 22px;
+}
+
+.moodboard-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.moodboard-palette {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.moodboard-palette-swatch {
+  min-height: 120px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.moodboard-palette-swatch::after {
+  content: attr(data-color);
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  opacity: 0;
+  transform: translateY(4px);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  padding: 4px 8px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.moodboard-palette-swatch:hover::after,
+.moodboard-palette-swatch:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.moodboard-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 22px;
+  align-items: start;
+}
+
+.moodboard-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.moodboard-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.moodboard-section-head h2 {
+  margin: 0;
+  color: #d8dbe6;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.moodboard-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.moodboard-form-inline {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.moodboard-form input {
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line-bright);
+  border-radius: 10px;
+  background: #0b0b0b;
+  color: var(--text);
+  padding: 0 11px;
+  outline: none;
+}
+
+.moodboard-form input:focus {
+  border-color: rgba(168, 158, 255, 0.55);
+}
+
+.reference-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reference-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 10px 0;
+}
+
+.reference-main {
+  min-width: 0;
+}
+
+.reference-title {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reference-artist {
+  color: #8d96a8;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.reference-actions,
+.embed-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.reference-open-button,
+.moodboard-delete-button,
+.embed-card-actions .icon-button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.moodboard-delete-button {
+  border-color: rgba(255, 95, 120, 0.24);
+  color: #ff9aa8;
+}
+
+.embed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.embed-card {
+  position: relative;
+  min-height: 210px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #050505;
+}
+
+.embed-card iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 210px;
+  border: 0;
+}
+
+.embed-card[data-provider="soundcloud"] {
+  min-height: 190px;
+}
+
+.embed-card[data-provider="soundcloud"] iframe {
+  min-height: 190px;
+}
+
+.embed-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.embed-card:hover .embed-card-actions,
+.embed-card:focus-within .embed-card-actions {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.embed-card-invalid {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.embed-invalid-copy,
+.moodboard-empty {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 /* ── Home sort button + dropdown menu ──────────────────────────────────── */
 .home-actions {
   margin-bottom: 18px;
@@ -3405,11 +3812,19 @@ textarea {
 /* ── Settings page ─────────────────────────────────────────────────────── */
 .settings-view {
   max-width: 1080px;
+  width: 100%;
   margin: 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .settings-chrome {
   margin-bottom: 24px;
+  flex: 0 0 auto;
+  margin-inline: 0;
+  padding-inline: 0;
 }
 
 .settings-panel {
@@ -3418,6 +3833,13 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  padding-bottom: 170px;
 }
 
 .settings-title {

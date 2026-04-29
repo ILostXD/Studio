@@ -176,6 +176,16 @@ const ICON_SVG = {
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 3 14 8 19 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="13" y2="17"></line></svg>',
   metadata:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0 0h18"></path></svg>',
+  moodboard:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>',
+  users:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+  analytics:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5"></path><path d="M4 19h16"></path><rect x="7" y="11" width="3" height="5" rx="1"></rect><rect x="12" y="7" width="3" height="9" rx="1"></rect><rect x="17" y="4" width="3" height="12" rx="1"></rect></svg>',
+  export:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"></path><path d="M7 8l5-5 5 5"></path><path d="M5 21h14a2 2 0 0 0 2-2v-4"></path><path d="M3 15v4a2 2 0 0 0 2 2"></path></svg>',
+  external:
+    '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7"></path><path d="M10 14L21 3"></path><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"></path></svg>',
   settings:
     '<svg class="icon-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.33 1v.17a2 2 0 1 1-4 0V21a1.65 1.65 0 0 0-.33-1 1.65 1.65 0 0 0-1-.6 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1-.33H2.83a2 2 0 1 1 0-4H3a1.65 1.65 0 0 0 1-.33 1.65 1.65 0 0 0 .6-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-.6 1.65 1.65 0 0 0 .33-1V2.83a2 2 0 1 1 4 0V3a1.65 1.65 0 0 0 .33 1 1.65 1.65 0 0 0 1 .6 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.1.31.1.65 0 1a1.65 1.65 0 0 0 .6 1 1.65 1.65 0 0 0 1 .33h.17a2 2 0 1 1 0 4H21a1.65 1.65 0 0 0-1 .33 1.65 1.65 0 0 0-.6 1z"></path></svg>',
   sort:
@@ -231,6 +241,7 @@ const state = {
 let toastTimeoutId = null;
 let trackMenuAutosaveController = null;
 let metadataAutosaveController = null;
+const paletteExtractionAttempts = new Set();
 
 function icon(name) {
   return ICON_SVG[name] || "";
@@ -1487,6 +1498,7 @@ async function incrementTrackPlayCount(trackId) {
         track.listenCount = payload.listenCount;
       }
     }
+    refreshProjectTrackRow(trackId);
     // If track menu is open for this track, refresh its count
     if (state.trackMenu.trackId === trackId) {
       state.trackMenu.listenCount = payload.listenCount;
@@ -1777,6 +1789,7 @@ async function autoAnalyzeTrack(trackId, audioUrl) {
     if (state.trackMenu.bpm === null) state.trackMenu.bpm = result.bpm;
     if (state.trackMenu.key === null) state.trackMenu.key = result.key;
     renderTrackMenuPhase2();
+    syncTrackMenuFieldsToProject();
     queueTrackMenuAutosave();
   } catch (_e) {
     // Silent fail — user can still click Analyze manually
@@ -1840,6 +1853,89 @@ async function saveTrack(projectId, trackId, fields) {
   updateActiveProjectFromPayload(payload.project);
 }
 
+function getTrackByIdFromProject(project, trackId) {
+  if (!project || !Array.isArray(project.tracks)) {
+    return null;
+  }
+
+  return project.tracks.find((track) => track.id === trackId) || null;
+}
+
+function updateLocalTrackFields(trackId, fields) {
+  const project = getActiveProject();
+  const track = getTrackByIdFromProject(project, trackId);
+  if (!track || !fields || typeof fields !== "object") {
+    return;
+  }
+
+  Object.assign(track, fields);
+  if (project) {
+    mergeProjectSummary(project);
+  }
+}
+
+function cssEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(String(value));
+  }
+
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function refreshProjectTrackRow(trackId) {
+  const project = getActiveProject();
+  if (!project || !Array.isArray(project.tracks)) {
+    return;
+  }
+
+  const trackIndex = project.tracks.findIndex((track) => track.id === trackId);
+  if (trackIndex < 0) {
+    return;
+  }
+
+  const row = appRoot.querySelector(
+    `.track-row[data-track-id="${cssEscape(trackId)}"]`,
+  );
+  if (!row) {
+    return;
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = projectTrackHtml(project.tracks[trackIndex], trackIndex).trim();
+  const nextRow = template.content.firstElementChild;
+  const currentMain = row.querySelector(".track-main");
+  const nextMain = nextRow && nextRow.querySelector(".track-main");
+  if (!currentMain || !nextMain) {
+    return;
+  }
+
+  currentMain.replaceWith(nextMain);
+  const indexEl = row.querySelector(".track-index");
+  if (indexEl) {
+    indexEl.textContent = String(trackIndex + 1);
+  }
+
+  if (canCurrentViewEdit()) {
+    const editable = row.querySelector("[data-track-field]");
+    if (editable) {
+      const field = editable.dataset.trackField;
+      bindEditable(
+        editable,
+        async (value) => {
+          await saveTrack(project.id, trackId, { [field]: value });
+          refreshProjectTrackRow(trackId);
+        },
+        { singleLine: true },
+      );
+    }
+  }
+
+  row
+    .querySelectorAll(".track-badge.marquee-wrap")
+    .forEach(applyMarquee);
+  highlightActiveTrackRows();
+}
+
 function buildTrackMenuSaveSnapshot() {
   if (!state.trackMenu.trackId) {
     return null;
@@ -1884,6 +1980,26 @@ function buildTrackMenuSaveSnapshot() {
   };
 }
 
+function syncTrackMenuFieldsToProject() {
+  const snapshot = buildTrackMenuSaveSnapshot();
+  if (!snapshot) {
+    return;
+  }
+
+  updateLocalTrackFields(snapshot.trackId, {
+    notes: snapshot.notes,
+    lyrics: snapshot.lyrics,
+    todos: snapshot.todos,
+    bpm: snapshot.bpm,
+    key: snapshot.key,
+    trackStatus: snapshot.trackStatus,
+    moodTags: snapshot.moodTags,
+    lufs: snapshot.lufs,
+    peakDb: snapshot.peakDb,
+  });
+  refreshProjectTrackRow(snapshot.trackId);
+}
+
 async function persistTrackMenuSnapshot(projectId, snapshot) {
   if (!snapshot || !snapshot.trackId) {
     return;
@@ -1900,6 +2016,7 @@ async function persistTrackMenuSnapshot(projectId, snapshot) {
     lufs: snapshot.lufs,
     peakDb: snapshot.peakDb,
   });
+  refreshProjectTrackRow(snapshot.trackId);
 }
 
 function setupTrackMenuAutosave(projectId) {
@@ -2032,6 +2149,17 @@ async function selectTrackVersion(projectId, trackId, versionId) {
   updateActiveProjectFromPayload(payload.project);
 }
 
+async function deleteTrackVersion(projectId, trackId, versionId) {
+  const endpoint = isShareRoute()
+    ? `/api/share/${encodeURIComponent(getShareToken())}/tracks/${encodeURIComponent(trackId)}/versions/${encodeURIComponent(versionId)}`
+    : `/api/projects/${encodeURIComponent(projectId)}/tracks/${encodeURIComponent(trackId)}/versions/${encodeURIComponent(versionId)}`;
+  const payload = await apiRequest(endpoint, {
+    method: "DELETE",
+  });
+
+  updateActiveProjectFromPayload(payload.project);
+}
+
 async function deleteCoverVersion(projectId, coverId) {
   const endpoint = `/api/projects/${encodeURIComponent(projectId)}/covers/${encodeURIComponent(coverId)}`;
   const payload = await apiRequest(endpoint, { method: "DELETE" });
@@ -2151,6 +2279,7 @@ function renderTrackMenuTodos() {
 
       state.trackMenu.todos[todoIndex].done = checkbox.checked;
       renderTrackMenuTodos();
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   });
@@ -2163,6 +2292,7 @@ function renderTrackMenuTodos() {
       }
 
       state.trackMenu.todos[todoIndex].text = sanitizeTodoText(input.value);
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   });
@@ -2176,9 +2306,41 @@ function renderTrackMenuTodos() {
 
       state.trackMenu.todos.splice(todoIndex, 1);
       renderTrackMenuTodos();
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   });
+}
+
+function updateTrackMenuHeader(track) {
+  if (!track) {
+    return;
+  }
+
+  const titleElement = document.getElementById("track-menu-title");
+  const subtitleElement = document.getElementById("track-menu-subtitle");
+  if (!titleElement || !subtitleElement) {
+    return;
+  }
+
+  const subtitleParts = [];
+  if (
+    track.trackNumber !== null &&
+    track.trackNumber !== undefined &&
+    track.trackNumber !== ""
+  ) {
+    subtitleParts.push(`Track ${track.trackNumber}`);
+  }
+  if (track.originalName) {
+    subtitleParts.push(track.originalName);
+  }
+  if (track.versionCount > 1) {
+    subtitleParts.push(`${track.versionCount} versions`);
+  }
+
+  titleElement.textContent =
+    track.title || track.originalName || "Untitled track";
+  subtitleElement.textContent = subtitleParts.join(" | ");
 }
 
 function renderTrackMenuVersions() {
@@ -2214,7 +2376,10 @@ function renderTrackMenuVersions() {
             <div class="version-title">${escapeHtml(version.originalName || "Untitled version")}</div>
             <div class="version-meta">${escapeHtml(chips.join(" • ") || "No metadata")}</div>
           </div>
-          <button class="secondary-button version-use-button" type="button" data-version-select="${escapeHtml(version.id)}" ${canEdit ? "" : "disabled"}>${isActive ? "Active" : "Use"}</button>
+          <div class="version-actions">
+            <button class="secondary-button version-use-button" type="button" data-version-select="${escapeHtml(version.id)}" ${canEdit ? "" : "disabled"}>${isActive ? "Active" : "Use"}</button>
+            <button class="icon-button version-delete-button" type="button" data-version-delete="${escapeHtml(version.id)}" aria-label="Delete version" title="Delete version" ${canEdit && versions.length > 1 ? "" : "disabled"}>${icon("trash")}</button>
+          </div>
         </div>
       `;
     })
@@ -2254,6 +2419,7 @@ function renderTrackMenuVersions() {
               : [];
             state.trackMenu.activeVersionId =
               refreshedTrack.activeVersionId || null;
+            updateTrackMenuHeader(refreshedTrack);
           }
 
           if (
@@ -2271,11 +2437,73 @@ function renderTrackMenuVersions() {
             }
           }
 
-          renderProjectView();
-          openTrackMenu(state.trackMenu.trackId);
+          renderTrackMenuVersions();
+          refreshProjectTrackRow(state.trackMenu.trackId);
           showToast("Switched track version");
         } catch (error) {
           showToast(error.message || "Could not switch version");
+        }
+      });
+    });
+
+  versionsElement
+    .querySelectorAll("[data-version-delete]")
+    .forEach((button) => {
+      button.addEventListener("click", async () => {
+        const versionId = button.dataset.versionDelete;
+        if (!versionId || !state.trackMenu.trackId) {
+          return;
+        }
+
+        if (!(await showConfirmDialog("Delete this track version?"))) {
+          return;
+        }
+
+        const activeProject = getActiveProject();
+        if (!activeProject) {
+          return;
+        }
+
+        try {
+          await deleteTrackVersion(
+            activeProject.id,
+            state.trackMenu.trackId,
+            versionId,
+          );
+
+          const refreshedTrack = getCurrentProjectTrack(
+            state.trackMenu.trackId,
+          );
+          if (refreshedTrack) {
+            state.trackMenu.versions = Array.isArray(refreshedTrack.versions)
+              ? [...refreshedTrack.versions]
+              : [];
+            state.trackMenu.activeVersionId =
+              refreshedTrack.activeVersionId || null;
+            updateTrackMenuHeader(refreshedTrack);
+          }
+
+          if (
+            state.player.track &&
+            state.player.track.id === state.trackMenu.trackId &&
+            refreshedTrack &&
+            refreshedTrack.audioUrl !== state.player.track.audioUrl
+          ) {
+            const queue =
+              (getActiveProject() && getActiveProject().tracks) || [];
+            const index = queue.findIndex(
+              (track) => track.id === refreshedTrack.id,
+            );
+            if (index >= 0) {
+              playTrack(queue[index], queue, index);
+            }
+          }
+
+          renderTrackMenuVersions();
+          refreshProjectTrackRow(state.trackMenu.trackId);
+          showToast("Track version deleted");
+        } catch (error) {
+          showToast(error.message || "Could not delete version");
         }
       });
     });
@@ -2300,6 +2528,7 @@ function addTrackMenuTodo() {
 
   input.value = "";
   renderTrackMenuTodos();
+  syncTrackMenuFieldsToProject();
   queueTrackMenuAutosave();
 }
 
@@ -2463,6 +2692,7 @@ function renderTrackMenuPhase2() {
   const moodWrap = document.getElementById("track-mood-tags");
   if (moodWrap) {
     renderMoodTags(moodWrap, canEdit, () => {
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -2657,6 +2887,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   if (notesInput && canEdit) {
     notesInput.addEventListener("input", () => {
       state.trackMenu.notes = String(notesInput.value || "").slice(0, 4000);
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -2664,6 +2895,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
   if (lyricsInput && canEdit) {
     lyricsInput.addEventListener("input", () => {
       state.trackMenu.lyrics = String(lyricsInput.value || "").slice(0, 12000);
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -2695,10 +2927,11 @@ function bindTrackMenuInteractions(projectId, options = {}) {
             : [];
           state.trackMenu.activeVersionId =
             refreshedTrack.activeVersionId || null;
+          updateTrackMenuHeader(refreshedTrack);
         }
         versionInput.value = "";
-        renderProjectView();
-        openTrackMenu(state.trackMenu.trackId);
+        renderTrackMenuVersions();
+        refreshProjectTrackRow(state.trackMenu.trackId);
         showToast("Track version uploaded");
       } catch (error) {
         showToast(error.message || "Could not upload version");
@@ -2731,6 +2964,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
         state.trackMenu.bpm = result.bpm ?? state.trackMenu.bpm;
         state.trackMenu.key = result.key ?? state.trackMenu.key;
         renderTrackMenuPhase2();
+        syncTrackMenuFieldsToProject();
         queueTrackMenuAutosave();
         showToast("Audio analysis complete");
       } catch (error) {
@@ -2752,6 +2986,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
     trackBpmInput.addEventListener("input", () => {
       state.trackMenu.bpm =
         trackBpmInput.value === "" ? null : Number(trackBpmInput.value);
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -2761,6 +2996,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
     trackStatusSelect.addEventListener("change", () => {
       state.trackMenu.trackStatus = trackStatusSelect.value || null;
       updateTrackStatusSelectColor(trackStatusSelect);
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -2786,6 +3022,7 @@ function bindTrackMenuInteractions(projectId, options = {}) {
         camelotBadgeEl.hidden = true;
       }
 
+      syncTrackMenuFieldsToProject();
       queueTrackMenuAutosave();
     });
   }
@@ -3362,6 +3599,342 @@ function buildColorPalettePickerHtml(colors, canEdit) {
   return swatches + addBtn;
 }
 
+function normalizeUrl(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed || !/^https?:\/\//i.test(trimmed)) {
+    return "";
+  }
+
+  try {
+    return new URL(trimmed).toString();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function parseMoodboardEmbed(urlValue) {
+  const normalized = normalizeUrl(urlValue);
+  if (!normalized) {
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = new URL(normalized);
+  } catch (_error) {
+    return null;
+  }
+
+  const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+  let youtubeId = "";
+
+  if (host === "youtu.be") {
+    youtubeId = parsed.pathname.split("/").filter(Boolean)[0] || "";
+  } else if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+    if (parsed.pathname === "/watch") {
+      youtubeId = parsed.searchParams.get("v") || "";
+    } else {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (["embed", "shorts", "live"].includes(parts[0])) {
+        youtubeId = parts[1] || "";
+      }
+    }
+  }
+
+  if (/^[a-zA-Z0-9_-]{6,}$/.test(youtubeId)) {
+    return {
+      provider: "youtube",
+      embedUrl: `https://www.youtube.com/embed/${youtubeId}`,
+    };
+  }
+
+  if (host === "w.soundcloud.com") {
+    const nestedUrl = normalizeUrl(parsed.searchParams.get("url") || "");
+    if (nestedUrl) {
+      return {
+        provider: "soundcloud",
+        embedUrl: buildSoundCloudEmbedUrl(nestedUrl),
+      };
+    }
+  }
+
+  if (host === "soundcloud.com" || host.endsWith(".soundcloud.com")) {
+    return {
+      provider: "soundcloud",
+      embedUrl: buildSoundCloudEmbedUrl(normalized),
+    };
+  }
+
+  return null;
+}
+
+function buildSoundCloudEmbedUrl(url) {
+  const encodedUrl = encodeURIComponent(url);
+  return `https://w.soundcloud.com/player/?url=${encodedUrl}&color=%23a89eff&auto_play=false&hide_related=false&show_comments=false&show_user=true&show_reposts=false&show_teaser=true&visual=false`;
+}
+
+function moodboardItems(project) {
+  return Array.isArray(project && project.moodboardItems)
+    ? project.moodboardItems
+    : [];
+}
+
+function moodboardPaletteHtml(colors) {
+  if (!Array.isArray(colors) || !colors.length) {
+    return '<p class="moodboard-empty">No palette yet.</p>';
+  }
+
+  return colors
+    .slice(0, 5)
+    .map(
+      (color) => `
+        <div
+          class="moodboard-palette-swatch"
+          style="background:${escapeHtml(color)}"
+          data-color="${escapeHtml(String(color).toUpperCase())}"
+          title="${escapeHtml(color)}"
+        ></div>
+      `,
+    )
+    .join("");
+}
+
+function referenceTrackHtml(item) {
+  const label = [item.artist, item.title].filter(Boolean).join(" - ");
+  return `
+    <article class="reference-row" data-moodboard-item="${escapeHtml(item.id)}">
+      <div class="reference-main">
+        <div class="reference-title">${escapeHtml(item.title || "Untitled reference")}</div>
+        <div class="reference-artist">${escapeHtml(item.artist || "Unknown artist")}</div>
+      </div>
+      <div class="reference-actions">
+        ${
+          item.url
+            ? `<a class="icon-button reference-open-button" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open ${escapeHtml(label || "reference")}">${icon("external")}</a>`
+            : ""
+        }
+        <button class="icon-button moodboard-delete-button" type="button" data-moodboard-delete="${escapeHtml(item.id)}" aria-label="Delete reference">${icon("trash")}</button>
+      </div>
+    </article>
+  `;
+}
+
+function inspirationEmbedHtml(item) {
+  const embed = parseMoodboardEmbed(item.url);
+  if (!embed) {
+    return `
+      <article class="embed-card embed-card-invalid" data-moodboard-item="${escapeHtml(item.id)}">
+        <div class="embed-invalid-copy">Unsupported URL</div>
+        <button class="icon-button moodboard-delete-button" type="button" data-moodboard-delete="${escapeHtml(item.id)}" aria-label="Delete embed">${icon("trash")}</button>
+      </article>
+    `;
+  }
+
+  return `
+    <article class="embed-card" data-provider="${escapeHtml(embed.provider)}" data-moodboard-item="${escapeHtml(item.id)}">
+      <iframe
+        src="${escapeHtml(embed.embedUrl)}"
+        title="${escapeHtml(embed.provider)} inspiration"
+        loading="lazy"
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+        allowfullscreen
+      ></iframe>
+      <div class="embed-card-actions">
+        <a class="icon-button" href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open original">${icon("external")}</a>
+        <button class="icon-button moodboard-delete-button" type="button" data-moodboard-delete="${escapeHtml(item.id)}" aria-label="Delete embed">${icon("trash")}</button>
+      </div>
+    </article>
+  `;
+}
+
+function buildMoodboardItem(type, fields) {
+  const timestamp = new Date().toISOString();
+  return {
+    id: buildLocalId(type),
+    type,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...fields,
+  };
+}
+
+function rgbToHex(r, g, b) {
+  return (
+    "#" +
+    [r, g, b]
+      .map((channel) => Math.max(0, Math.min(255, channel)).toString(16).padStart(2, "0"))
+      .join("")
+  );
+}
+
+function rgbToHsl(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const lightness = (max + min) / 2;
+
+  if (max === min) {
+    return { hue: 0, saturation: 0, lightness };
+  }
+
+  const delta = max - min;
+  const saturation =
+    lightness > 0.5 ? delta / (2 - max - min) : delta / (max + min);
+  let hue = 0;
+  if (max === rn) {
+    hue = (gn - bn) / delta + (gn < bn ? 6 : 0);
+  } else if (max === gn) {
+    hue = (bn - rn) / delta + 2;
+  } else {
+    hue = (rn - gn) / delta + 4;
+  }
+
+  return { hue: hue * 60, saturation, lightness };
+}
+
+function colorDistance(a, b) {
+  const dr = a.r - b.r;
+  const dg = a.g - b.g;
+  const db = a.b - b.b;
+  return Math.sqrt(dr * dr + dg * dg + db * db);
+}
+
+async function extractPaletteFromImageUrl(imageUrl, count = 3) {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      const size = 72;
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d", { willReadFrequently: true });
+      if (!context) {
+        resolve([]);
+        return;
+      }
+
+      context.drawImage(image, 0, 0, size, size);
+      let imageData;
+      try {
+        imageData = context.getImageData(0, 0, size, size).data;
+      } catch (_error) {
+        resolve([]);
+        return;
+      }
+
+      const buckets = new Map();
+      for (let index = 0; index < imageData.length; index += 16) {
+        const r = imageData[index];
+        const g = imageData[index + 1];
+        const b = imageData[index + 2];
+        const alpha = imageData[index + 3];
+        if (alpha < 180) {
+          continue;
+        }
+
+        const hsl = rgbToHsl(r, g, b);
+        if (hsl.lightness < 0.08 || hsl.lightness > 0.92) {
+          continue;
+        }
+
+        const key = `${Math.round(r / 24)}-${Math.round(g / 24)}-${Math.round(b / 24)}`;
+        const bucket = buckets.get(key) || {
+          r: 0,
+          g: 0,
+          b: 0,
+          count: 0,
+          saturation: 0,
+        };
+        bucket.r += r;
+        bucket.g += g;
+        bucket.b += b;
+        bucket.count += 1;
+        bucket.saturation += hsl.saturation;
+        buckets.set(key, bucket);
+      }
+
+      const ranked = [...buckets.values()]
+        .map((bucket) => {
+          const r = Math.round(bucket.r / bucket.count);
+          const g = Math.round(bucket.g / bucket.count);
+          const b = Math.round(bucket.b / bucket.count);
+          const saturation = bucket.saturation / bucket.count;
+          return {
+            r,
+            g,
+            b,
+            score: bucket.count * (0.7 + saturation),
+          };
+        })
+        .sort((a, b) => b.score - a.score);
+
+      const picked = [];
+      for (const color of ranked) {
+        if (picked.every((existing) => colorDistance(existing, color) > 48)) {
+          picked.push(color);
+        }
+        if (picked.length >= count) {
+          break;
+        }
+      }
+
+      resolve(picked.map((color) => rgbToHex(color.r, color.g, color.b)));
+    };
+    image.onerror = () => resolve([]);
+    image.src = imageUrl;
+  });
+}
+
+async function maybeExtractPaletteFromCover(project) {
+  if (
+    !project ||
+    !project.coverUrl ||
+    isShareRoute() ||
+    !canCurrentViewEdit() ||
+    (Array.isArray(project.colorPalette) && project.colorPalette.length)
+  ) {
+    return;
+  }
+
+  const coverKey = `${project.id}:${project.activeCoverId || project.coverUrl}`;
+  if (paletteExtractionAttempts.has(coverKey)) {
+    return;
+  }
+  paletteExtractionAttempts.add(coverKey);
+
+  const cacheBuster = project.activeCoverId
+    ? `?palette=${encodeURIComponent(project.activeCoverId)}`
+    : "";
+  const colors = await extractPaletteFromImageUrl(`${project.coverUrl}${cacheBuster}`, 3);
+  if (!colors.length) {
+    return;
+  }
+
+  await saveProject({ colorPalette: colors });
+  const activeProject = getActiveProject();
+  if (!activeProject || activeProject.id !== project.id) {
+    return;
+  }
+
+  if (state.route.type === "project") {
+    const moodboardPanel = document.getElementById("moodboard-panel");
+    const shouldReopenMoodboard = Boolean(
+      moodboardPanel && !moodboardPanel.classList.contains("hidden"),
+    );
+    renderProjectView();
+    if (shouldReopenMoodboard) {
+      const openMoodboardButton = document.getElementById("open-moodboard-button");
+      if (openMoodboardButton) {
+        openMoodboardButton.click();
+      }
+    }
+  }
+  showToast("Palette extracted from cover");
+}
+
 // Sort options available on the home page
 const HOME_SORT_OPTIONS = [
   { key: "updatedAt",        label: "Last Modified",    dir: "desc" },
@@ -3805,9 +4378,18 @@ function renderProjectView() {
 
             <div class="project-secondary-controls">
               <select id="project-status" class="project-status-select ui-select" title="Status" aria-label="Status" ${canEdit ? "" : "disabled"}>${statusOptionsHtml(project.status)}</select>
-              <button id="open-metadata-button" class="secondary-button panel-trigger-btn" type="button">${icon("metadata")} Metadata</button>
               <button id="open-notes-button" class="secondary-button panel-trigger-btn" type="button">${icon("notes")} Notes</button>
               ${showOwnerShareManager ? `<button id="open-share-button" class="secondary-button panel-trigger-btn" type="button">${icon("link")} Share</button>` : ""}
+              <div class="feature-menu-wrap">
+                <button id="project-feature-menu-button" class="secondary-button panel-trigger-btn feature-menu-button" type="button" aria-haspopup="true" aria-expanded="false">${icon("more")} More</button>
+                <div id="project-feature-menu" class="feature-menu hidden">
+                  <button id="open-metadata-button" class="feature-menu-item" type="button">${icon("metadata")} Metadata</button>
+                  ${showOwnerShareManager ? `<button id="open-moodboard-button" class="feature-menu-item" type="button">${icon("moodboard")} Moodboard</button>` : ""}
+                  ${showOwnerShareManager ? `<button id="open-export-button" class="feature-menu-item" type="button">${icon("export")} Export</button>` : ""}
+                  ${showOwnerShareManager ? `<button id="open-collaborators-button" class="feature-menu-item" type="button">${icon("users")} Collaborators</button>` : ""}
+                  ${showOwnerShareManager ? `<button id="open-analytics-button" class="feature-menu-item" type="button">${icon("analytics")} Analytics</button>` : ""}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -4046,11 +4628,30 @@ function renderProjectView() {
           </div>
         </div>
       </div>
+
+      ${
+        showOwnerShareManager
+          ? `
+      <div id="moodboard-panel" class="panel-overlay hidden" role="dialog" aria-modal="true" aria-label="Project moodboard">
+        <div class="panel-sheet panel-sheet-moodboard">
+          <header class="panel-header">
+            <h3>Moodboard</h3>
+            <button id="moodboard-panel-close" class="circle-button" type="button" aria-label="Close moodboard">${icon("close")}</button>
+          </header>
+          <div class="panel-body moodboard-panel-body">
+            <div id="moodboard-panel-content"></div>
+          </div>
+        </div>
+      </div>
+      `
+          : ""
+      }
     </section>
   `;
 
   bindProjectViewInteractions();
   highlightActiveTrackRows();
+  void maybeExtractPaletteFromCover(project);
 
   // Measure filename badge marquees after paint
   requestAnimationFrame(() => {
@@ -4312,6 +4913,54 @@ function bindProjectViewInteractions() {
       }
     });
   }
+
+  const featureMenuButton = document.getElementById(
+    "project-feature-menu-button",
+  );
+  const featureMenu = document.getElementById("project-feature-menu");
+  if (featureMenuButton && featureMenu) {
+    const closeFeatureMenu = () => {
+      featureMenu.classList.add("hidden");
+      featureMenuButton.setAttribute("aria-expanded", "false");
+    };
+
+    featureMenuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isOpen = !featureMenu.classList.contains("hidden");
+      featureMenu.classList.toggle("hidden", isOpen);
+      featureMenuButton.setAttribute("aria-expanded", String(!isOpen));
+    });
+
+    featureMenu.addEventListener("click", (event) => {
+      if (event.target.closest("button")) {
+        closeFeatureMenu();
+      }
+    });
+
+    document.addEventListener("click", function closeFeatureMenuOnOutside(event) {
+      if (
+        !featureMenu.classList.contains("hidden") &&
+        !featureMenu.contains(event.target) &&
+        event.target !== featureMenuButton
+      ) {
+        closeFeatureMenu();
+      }
+    });
+  }
+
+  const placeholderFeatureButtons = [
+    ["open-collaborators-button", "Collaborators"],
+    ["open-analytics-button", "Analytics"],
+    ["open-export-button", "Export"],
+  ];
+  placeholderFeatureButtons.forEach(([buttonId, label]) => {
+    const button = document.getElementById(buttonId);
+    if (button) {
+      button.addEventListener("click", () => {
+        showToast(`${label} will be added in a later phase`);
+      });
+    }
+  });
 
   const logoutButton = document.getElementById("logout-button");
   const openSettingsButton = document.getElementById("open-settings-button");
@@ -4704,10 +5353,197 @@ function bindProjectViewInteractions() {
   bindTrackMenuInteractions(project.id, { canEdit });
 
   bindMetadataPanelInteractions(project.id, canEdit);
+  bindMoodboardPanelInteractions(project.id, canEdit && !isShareRoute());
 
   if (!isShareRoute() && canEdit) {
     bindTrackDragAndDrop(project.id);
   }
+}
+
+function buildMoodboardPanelContentHtml(project, canEdit) {
+  const items = moodboardItems(project);
+  const references = items.filter((item) => item.type === "reference");
+  const embeds = items.filter((item) => item.type === "embed");
+
+  return `
+    <div class="moodboard-panel-content">
+      <section class="moodboard-palette">
+        ${moodboardPaletteHtml(project.colorPalette || [])}
+      </section>
+
+      <section class="moodboard-layout">
+        <div class="moodboard-column">
+          <div class="moodboard-section-head">
+            <h2>Reference Tracks</h2>
+          </div>
+
+          <form id="moodboard-reference-form" class="moodboard-form">
+            <input id="moodboard-reference-artist" type="text" placeholder="Artist" maxlength="140" ${canEdit ? "" : "disabled"} />
+            <input id="moodboard-reference-title" type="text" placeholder="Track title" maxlength="180" ${canEdit ? "" : "disabled"} />
+            <input id="moodboard-reference-url" type="url" placeholder="https://..." maxlength="600" ${canEdit ? "" : "disabled"} />
+            <button class="secondary-button" type="submit" ${canEdit ? "" : "disabled"}>${icon("plus")} Add</button>
+          </form>
+
+          <div class="reference-list">
+            ${references.length ? references.map(referenceTrackHtml).join("") : '<p class="moodboard-empty">No reference tracks yet.</p>'}
+          </div>
+        </div>
+
+        <div class="moodboard-column moodboard-column-wide">
+          <div class="moodboard-section-head">
+            <h2>Inspiration Board</h2>
+          </div>
+
+          <form id="moodboard-embed-form" class="moodboard-form moodboard-form-inline">
+            <input id="moodboard-embed-url" type="url" placeholder="YouTube or SoundCloud URL" maxlength="600" ${canEdit ? "" : "disabled"} />
+            <button class="secondary-button" type="submit" ${canEdit ? "" : "disabled"}>${icon("plus")} Add</button>
+          </form>
+
+          <div class="embed-grid">
+            ${embeds.length ? embeds.map(inspirationEmbedHtml).join("") : '<p class="moodboard-empty">No inspiration links yet.</p>'}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function bindMoodboardPanelInteractions(projectId, canEdit) {
+  const panel = document.getElementById("moodboard-panel");
+  const openButton = document.getElementById("open-moodboard-button");
+  const closeButton = document.getElementById("moodboard-panel-close");
+  const content = document.getElementById("moodboard-panel-content");
+
+  if (!panel || !content) {
+    return;
+  }
+
+  const renderContent = () => {
+    const activeProject = getActiveProject();
+    if (!activeProject || activeProject.id !== projectId) {
+      return;
+    }
+
+    content.innerHTML = buildMoodboardPanelContentHtml(activeProject, canEdit);
+
+    if (!canEdit) {
+      return;
+    }
+
+    const saveMoodboardItems = async (nextItems, message) => {
+      await saveProject({ moodboardItems: nextItems });
+      renderContent();
+      if (message) {
+        showToast(message);
+      }
+    };
+
+    const referenceForm = content.querySelector("#moodboard-reference-form");
+    if (referenceForm) {
+      referenceForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const artistInput = content.querySelector("#moodboard-reference-artist");
+        const titleInput = content.querySelector("#moodboard-reference-title");
+        const urlInput = content.querySelector("#moodboard-reference-url");
+        const artist = sanitizeEditableText(artistInput.value);
+        const title = sanitizeEditableText(titleInput.value);
+        const rawUrl = String(urlInput.value || "").trim();
+        const url = rawUrl ? normalizeUrl(rawUrl) : "";
+
+        if (!artist || !title) {
+          showToast("Artist and track title are required");
+          return;
+        }
+
+        if (rawUrl && !url) {
+          showToast("Enter a valid URL");
+          return;
+        }
+
+        try {
+          await saveMoodboardItems(
+            [
+              buildMoodboardItem("reference", { artist, title, url }),
+              ...moodboardItems(getActiveProject()),
+            ],
+            "Reference track added",
+          );
+        } catch (error) {
+          showToast(error.message || "Could not add reference");
+        }
+      });
+    }
+
+    const embedForm = content.querySelector("#moodboard-embed-form");
+    if (embedForm) {
+      embedForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const urlInput = content.querySelector("#moodboard-embed-url");
+        const rawUrl = String(urlInput.value || "").trim();
+        const url = normalizeUrl(rawUrl);
+        const embed = parseMoodboardEmbed(url);
+
+        if (!embed) {
+          showToast("Use a YouTube or SoundCloud URL");
+          return;
+        }
+
+        try {
+          await saveMoodboardItems(
+            [
+              buildMoodboardItem("embed", {
+                url,
+                provider: embed.provider,
+              }),
+              ...moodboardItems(getActiveProject()),
+            ],
+            "Inspiration added",
+          );
+        } catch (error) {
+          showToast(error.message || "Could not add inspiration");
+        }
+      });
+    }
+
+    content.querySelectorAll("[data-moodboard-delete]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const itemId = button.dataset.moodboardDelete;
+        if (!itemId) {
+          return;
+        }
+
+        try {
+          await saveMoodboardItems(
+            moodboardItems(getActiveProject()).filter((item) => item.id !== itemId),
+            "Moodboard item deleted",
+          );
+        } catch (error) {
+          showToast(error.message || "Could not delete item");
+        }
+      });
+    });
+  };
+
+  const closePanel = () => {
+    animatedClose(panel);
+  };
+
+  if (openButton) {
+    openButton.addEventListener("click", () => {
+      renderContent();
+      panel.classList.remove("hidden");
+    });
+  }
+
+  if (closeButton) {
+    closeButton.addEventListener("click", closePanel);
+  }
+
+  panel.addEventListener("click", (event) => {
+    if (event.target === panel) {
+      closePanel();
+    }
+  });
 }
 
 function bindTrackDragAndDrop(projectId) {

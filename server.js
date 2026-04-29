@@ -253,6 +253,76 @@ function safeUrl(value) {
   return trimmed;
 }
 
+function parseMoodboardProvider(value) {
+  const provider = safeString(String(value || ""), 40).toLowerCase();
+  if (provider === "youtube" || provider === "soundcloud") {
+    return provider;
+  }
+
+  return "";
+}
+
+function normalizeMoodboardItem(value, fallbackTimestamp) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const type = value.type === "reference" || value.type === "embed"
+    ? value.type
+    : "";
+  if (!type) {
+    return null;
+  }
+
+  const createdAt = safeString(value.createdAt, 80) || fallbackTimestamp;
+  const base = {
+    id: safeString(value.id, 100) || crypto.randomUUID(),
+    type,
+    createdAt,
+    updatedAt: safeString(value.updatedAt, 80) || createdAt,
+  };
+
+  if (type === "reference") {
+    const artist = safeString(value.artist, 140);
+    const title = safeString(value.title, 180);
+    const url = safeUrl(value.url);
+
+    if (!artist && !title && !url) {
+      return null;
+    }
+
+    return {
+      ...base,
+      artist,
+      title,
+      url,
+    };
+  }
+
+  const url = safeUrl(value.url);
+  if (!url) {
+    return null;
+  }
+
+  return {
+    ...base,
+    url,
+    provider: parseMoodboardProvider(value.provider),
+  };
+}
+
+function parseMoodboardItems(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const timestamp = nowIso();
+  return value
+    .map((item) => normalizeMoodboardItem(item, timestamp))
+    .filter((item) => item !== null)
+    .slice(0, 100);
+}
+
 async function extractDurationSeconds(absolutePath) {
   try {
     const metadata = await parseFile(absolutePath, { duration: true });
@@ -747,6 +817,13 @@ function normalizeProject(project) {
     changed = true;
   }
 
+  const previousMoodboardItems = JSON.stringify(project.moodboardItems || []);
+  const normalizedMoodboardItems = parseMoodboardItems(project.moodboardItems);
+  if (JSON.stringify(normalizedMoodboardItems) !== previousMoodboardItems) {
+    changed = true;
+  }
+  project.moodboardItems = normalizedMoodboardItems;
+
   return changed;
 }
 
@@ -939,6 +1016,9 @@ function toProjectDetails(project, shareLink = null) {
     streamingChecklist: project.streamingChecklist || parseStreamingChecklist({}),
     preSaveLink: project.preSaveLink || "",
     distributorNotes: project.distributorNotes || "",
+    moodboardItems: Array.isArray(project.moodboardItems)
+      ? project.moodboardItems
+      : [],
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
     tracks,
@@ -1227,6 +1307,34 @@ function findCoverVersion(project, coverId) {
   );
 }
 
+function removeTrackVersion(project, track, versionId, res) {
+  const versions = Array.isArray(track.versions) ? track.versions : [];
+  const versionIndex = versions.findIndex((version) => version.id === versionId);
+
+  if (versionIndex < 0) {
+    res.status(404).json({ error: "Track version not found" });
+    return false;
+  }
+
+  if (versions.length <= 1) {
+    res.status(400).json({ error: "Delete the track to remove its only version" });
+    return false;
+  }
+
+  const [removedVersion] = versions.splice(versionIndex, 1);
+  deleteStoredFile(removedVersion.filePath);
+
+  track.versions = versions;
+  if (track.activeVersionId === versionId) {
+    track.activeVersionId = versions[0].id;
+  }
+
+  applyActiveTrackVersion(track);
+  track.updatedAt = nowIso();
+  project.updatedAt = track.updatedAt;
+  return true;
+}
+
 function applyTrackFields(track, body, res) {
   if (Object.prototype.hasOwnProperty.call(body || {}, "title")) {
     track.title = safeString(body.title, 180);
@@ -1347,6 +1455,7 @@ projectsRouter.post("/", (req, res) => {
     streamingChecklist: parseStreamingChecklist({}),
     preSaveLink: "",
     distributorNotes: "",
+    moodboardItems: [],
     createdAt: timestamp,
     updatedAt: timestamp,
   };
@@ -1428,6 +1537,10 @@ projectsRouter.patch("/:projectId", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "distributorNotes")) {
     project.distributorNotes = safeString(req.body.distributorNotes, 4000);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "moodboardItems")) {
+    project.moodboardItems = parseMoodboardItems(req.body.moodboardItems);
   }
 
   project.updatedAt = nowIso();
@@ -1905,6 +2018,32 @@ projectsRouter.post(
   },
 );
 
+projectsRouter.delete(
+  "/:projectId/tracks/:trackId/versions/:versionId",
+  (req, res) => {
+    const database = readDatabase();
+    const project = findProjectById(database, req.params.projectId);
+
+    if (!project) {
+      res.status(404).json({ error: "Project not found" });
+      return;
+    }
+
+    const track = findTrack(project, req.params.trackId);
+    if (!track) {
+      res.status(404).json({ error: "Track not found" });
+      return;
+    }
+
+    if (!removeTrackVersion(project, track, req.params.versionId, res)) {
+      return;
+    }
+
+    writeDatabase(database);
+    res.json({ project: toProjectDetails(project) });
+  },
+);
+
 projectsRouter.delete("/:projectId/tracks/:trackId", (req, res) => {
   const database = readDatabase();
   const project = findProjectById(database, req.params.projectId);
@@ -2064,6 +2203,10 @@ app.patch("/api/share/:token/project", (req, res) => {
 
   if (Object.prototype.hasOwnProperty.call(req.body || {}, "distributorNotes")) {
     project.distributorNotes = safeString(req.body.distributorNotes, 4000);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "moodboardItems")) {
+    project.moodboardItems = parseMoodboardItems(req.body.moodboardItems);
   }
 
   project.updatedAt = nowIso();
@@ -2308,6 +2451,34 @@ app.post(
     project.updatedAt = track.updatedAt;
     writeDatabase(database);
 
+    res.json({ project: toProjectDetails(project, shareLink) });
+  },
+);
+
+app.delete(
+  "/api/share/:token/tracks/:trackId/versions/:versionId",
+  (req, res) => {
+    const context = resolveShareRequest(req, res);
+    if (!context) {
+      return;
+    }
+
+    const { database, project, shareLink } = context;
+    if (!requireSharePermission(shareLink, "edit", res)) {
+      return;
+    }
+
+    const track = findTrack(project, req.params.trackId);
+    if (!track) {
+      res.status(404).json({ error: "Track not found" });
+      return;
+    }
+
+    if (!removeTrackVersion(project, track, req.params.versionId, res)) {
+      return;
+    }
+
+    writeDatabase(database);
     res.json({ project: toProjectDetails(project, shareLink) });
   },
 );
