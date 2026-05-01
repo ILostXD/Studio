@@ -7,13 +7,16 @@ const morgan = require("morgan");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const bcrypt = require("bcrypt");
 const { parseFile } = require("music-metadata");
 
 const IS_API_ONLY_MODE = process.argv.includes("--api-only");
 
 const PORT = Number(process.env.PORT || 3000);
-const APP_PASSWORD = process.env.APP_PASSWORD || "studio";
 const SESSION_SECRET = process.env.SESSION_SECRET || "studio-session-secret";
+const SESSION_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
+const SESSION_REMEMBER_ME_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 180;
+const BCRYPT_COST = Math.max(8, Math.min(14, Number(process.env.BCRYPT_COST || 12)));
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const FILES_DIR = path.join(DATA_DIR, "files");
@@ -151,8 +154,16 @@ function parseBpm(value) {
 }
 
 function parseTrackStatus(value) {
-  if (TRACK_STATUS_OPTIONS.includes(value)) {
-    return value;
+  const normalized = safeString(String(value || ""), 60).trim();
+  if (!normalized) {
+    return null;
+  }
+
+  const match = TRACK_STATUS_OPTIONS.find(
+    (status) => status.toLowerCase() === normalized.toLowerCase(),
+  );
+  if (match) {
+    return match;
   }
 
   return null;
@@ -323,6 +334,56 @@ function parseMoodboardItems(value) {
     .slice(0, 100);
 }
 
+function sanitizeUsername(value) {
+  const username = safeString(String(value || ""), 60);
+  if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username)) {
+    return "";
+  }
+
+  return username;
+}
+
+function usernameKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function sanitizePassword(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  return value.slice(0, 256);
+}
+
+function normalizeUser(user, fallbackTimestamp) {
+  if (!user || typeof user !== "object") {
+    return null;
+  }
+
+  const username = sanitizeUsername(user.username);
+  const passwordHash = safeString(user.passwordHash, 200);
+  if (!username || !passwordHash) {
+    return null;
+  }
+
+  return {
+    id: safeString(user.id, 100) || crypto.randomUUID(),
+    username,
+    passwordHash,
+    createdAt: safeString(user.createdAt, 80) || fallbackTimestamp,
+    isAdmin: Boolean(user.isAdmin),
+  };
+}
+
+function toUserResponse(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    createdAt: user.createdAt,
+    isAdmin: Boolean(user.isAdmin),
+  };
+}
+
 async function extractDurationSeconds(absolutePath) {
   try {
     const metadata = await parseFile(absolutePath, { duration: true });
@@ -343,7 +404,7 @@ function ensureAppFiles() {
   ensureDirectory(COVERS_DIR);
 
   if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ projects: [] }, null, 2));
+    fs.writeFileSync(DB_FILE, JSON.stringify({ projects: [], users: [] }, null, 2));
   }
 }
 
@@ -831,8 +892,10 @@ function readDatabase() {
   try {
     const raw = fs.readFileSync(DB_FILE, "utf8");
     const parsed = JSON.parse(raw);
+    const fallbackTimestamp = nowIso();
     const database = {
       projects: Array.isArray(parsed.projects) ? parsed.projects : [],
+      users: Array.isArray(parsed.users) ? parsed.users : [],
     };
 
     let changed = false;
@@ -842,18 +905,58 @@ function readDatabase() {
       }
     });
 
+    const previousUsers = JSON.stringify(database.users);
+    database.users = database.users
+      .map((user) => normalizeUser(user, fallbackTimestamp))
+      .filter((user) => user !== null);
+
+    const usernames = new Set();
+    const dedupedUsers = [];
+    for (const user of database.users) {
+      const key = usernameKey(user.username);
+      if (usernames.has(key)) {
+        changed = true;
+        continue;
+      }
+
+      usernames.add(key);
+      dedupedUsers.push(user);
+    }
+    database.users = dedupedUsers;
+
+    if (database.users.length && !database.users.some((user) => user.isAdmin)) {
+      database.users[0].isAdmin = true;
+      changed = true;
+    }
+
+    if (JSON.stringify(database.users) !== previousUsers) {
+      changed = true;
+    }
+
     if (changed) {
       writeDatabase(database);
     }
 
     return database;
   } catch (error) {
-    return { projects: [] };
+    return { projects: [], users: [] };
   }
 }
 
 function findProjectById(database, projectId) {
   return database.projects.find((project) => project.id === projectId);
+}
+
+function findUserById(database, userId) {
+  return (database.users || []).find((user) => user.id === userId) || null;
+}
+
+function findUserByUsername(database, username) {
+  const key = usernameKey(username);
+  return (
+    (database.users || []).find((user) => usernameKey(user.username) === key) ||
+    null
+  );
 }
 
 function findProjectShareByToken(database, token) {
@@ -1165,7 +1268,13 @@ function streamFile(req, res, absolutePath, fallbackMimeType) {
 function makeStorage(directory) {
   return multer.diskStorage({
     destination: (_req, _file, callback) => {
-      callback(null, directory);
+      try {
+        // Ensure runtime upload directories always exist, even if they were deleted while running.
+        ensureDirectory(directory);
+        callback(null, directory);
+      } catch (error) {
+        callback(error);
+      }
     },
     filename: (_req, file, callback) => {
       const extension = path.extname(file.originalname).toLowerCase();
@@ -1201,18 +1310,67 @@ app.use(
       httpOnly: true,
       sameSite: "lax",
       secure: false,
-      maxAge: 1000 * 60 * 60 * 24 * 7,
+      maxAge: SESSION_MAX_AGE_MS,
     },
   }),
 );
 
 function requireAuth(req, res, next) {
-  if (req.session && req.session.authenticated) {
-    next();
+  if (!req.session || !req.session.authenticated || !req.session.userId) {
+    res.status(401).json({ error: "Authentication required" });
     return;
   }
 
-  res.status(401).json({ error: "Authentication required" });
+  const database = readDatabase();
+  const user = findUserById(database, req.session.userId);
+  if (!user) {
+    req.session.destroy(() => {});
+    res.status(401).json({ error: "Authentication required" });
+    return;
+  }
+
+  req.studioUser = user;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.studioUser || !req.studioUser.isAdmin) {
+    res.status(403).json({ error: "Admin access required" });
+    return;
+  }
+
+  next();
+}
+
+function applyUserSession(req, user, options = {}) {
+  const rememberMe = Boolean(options.rememberMe);
+  req.session.authenticated = true;
+  req.session.userId = user.id;
+  req.session.username = user.username;
+  req.session.cookie.maxAge = rememberMe
+    ? SESSION_REMEMBER_ME_MAX_AGE_MS
+    : SESSION_MAX_AGE_MS;
+}
+
+function getSessionUser(req) {
+  if (!req.session || !req.session.authenticated || !req.session.userId) {
+    return null;
+  }
+
+  const database = readDatabase();
+  return findUserById(database, req.session.userId);
+}
+
+function validatePasswordStrength(password) {
+  if (password.length < 8) {
+    return "Password must be at least 8 characters";
+  }
+
+  if (password.length > 200) {
+    return "Password is too long";
+  }
+
+  return "";
 }
 
 const uploadTracks = multer({
@@ -1234,16 +1392,88 @@ const uploadCover = multer({
 });
 
 app.get("/api/session", (req, res) => {
+  const database = readDatabase();
+  const user = getSessionUser(req);
   res.json({
-    authenticated: Boolean(req.session && req.session.authenticated),
+    authenticated: Boolean(user),
+    user: user ? toUserResponse(user) : null,
+    needsSetup: !(database.users || []).length,
   });
 });
 
-app.post("/api/login", (req, res) => {
-  const suppliedPassword = safeString(req.body && req.body.password, 300);
+app.post("/api/setup", async (req, res) => {
+  const database = readDatabase();
+  if ((database.users || []).length > 0) {
+    res.status(409).json({ error: "Setup already completed" });
+    return;
+  }
 
-  if (!suppliedPassword || suppliedPassword !== APP_PASSWORD) {
-    res.status(401).json({ error: "Invalid password" });
+  const username = sanitizeUsername(req.body && req.body.username);
+  const password = sanitizePassword(req.body && req.body.password);
+  const confirmPassword = sanitizePassword(req.body && req.body.confirmPassword);
+  if (!username) {
+    res.status(400).json({ error: "Username must be 3-40 characters and use letters, numbers, ., _, or -" });
+    return;
+  }
+
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) {
+    res.status(400).json({ error: passwordError });
+    return;
+  }
+
+  if (!confirmPassword || password !== confirmPassword) {
+    res.status(400).json({ error: "Passwords do not match" });
+    return;
+  }
+
+  const timestamp = nowIso();
+  const user = {
+    id: crypto.randomUUID(),
+    username,
+    passwordHash: await bcrypt.hash(password, BCRYPT_COST),
+    createdAt: timestamp,
+    isAdmin: true,
+  };
+  database.users = [user];
+  writeDatabase(database);
+
+  req.session.regenerate((error) => {
+    if (error) {
+      res.status(500).json({ error: "Failed to create session" });
+      return;
+    }
+
+    applyUserSession(req, user, { rememberMe: true });
+    res.status(201).json({ ok: true, user: toUserResponse(user) });
+  });
+});
+
+app.post("/api/login", async (req, res) => {
+  const database = readDatabase();
+  if (!(database.users || []).length) {
+    res.status(409).json({ error: "No users found. Create the first account." });
+    return;
+  }
+
+  const username = sanitizeUsername(req.body && req.body.username);
+  const password = sanitizePassword(req.body && req.body.password);
+  const rememberMe = Boolean(req.body && req.body.rememberMe);
+
+  if (!username || !password) {
+    res.status(401).json({ error: "Invalid username or password" });
+    return;
+  }
+
+  const user = findUserByUsername(database, username);
+  if (!user) {
+    res.status(401).json({ error: "Invalid username or password" });
+    return;
+  }
+
+  const passwordMatches = await bcrypt.compare(password, user.passwordHash);
+  if (!passwordMatches) {
+    res.status(401).json({ error: "Invalid username or password" });
     return;
   }
 
@@ -1253,8 +1483,8 @@ app.post("/api/login", (req, res) => {
       return;
     }
 
-    req.session.authenticated = true;
-    res.json({ ok: true });
+    applyUserSession(req, user, { rememberMe });
+    res.json({ ok: true, user: toUserResponse(user) });
   });
 });
 
@@ -1268,6 +1498,148 @@ app.post("/api/logout", requireAuth, (req, res) => {
     res.clearCookie("connect.sid");
     res.json({ ok: true });
   });
+});
+
+app.get("/api/account", requireAuth, (req, res) => {
+  res.json({ user: toUserResponse(req.studioUser) });
+});
+
+app.patch("/api/account", requireAuth, async (req, res) => {
+  const database = readDatabase();
+  const user = findUserById(database, req.studioUser.id);
+  if (!user) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  let changed = false;
+
+  if (Object.prototype.hasOwnProperty.call(req.body || {}, "username")) {
+    const username = sanitizeUsername(req.body.username);
+    if (!username) {
+      res.status(400).json({ error: "Username must be 3-40 characters and use letters, numbers, ., _, or -" });
+      return;
+    }
+
+    const existingUser = findUserByUsername(database, username);
+    if (existingUser && existingUser.id !== user.id) {
+      res.status(409).json({ error: "Username is already taken" });
+      return;
+    }
+
+    if (user.username !== username) {
+      user.username = username;
+      changed = true;
+    }
+  }
+
+  const hasPasswordChange =
+    Object.prototype.hasOwnProperty.call(req.body || {}, "currentPassword") ||
+    Object.prototype.hasOwnProperty.call(req.body || {}, "newPassword");
+  if (hasPasswordChange) {
+    const currentPassword = sanitizePassword(req.body && req.body.currentPassword);
+    const newPassword = sanitizePassword(req.body && req.body.newPassword);
+    const confirmPassword = sanitizePassword(req.body && req.body.confirmPassword);
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ error: "Current password and new password are required" });
+      return;
+    }
+
+    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!matches) {
+      res.status(401).json({ error: "Current password is incorrect" });
+      return;
+    }
+
+    const passwordError = validatePasswordStrength(newPassword);
+    if (passwordError) {
+      res.status(400).json({ error: passwordError });
+      return;
+    }
+
+    if (!confirmPassword || newPassword !== confirmPassword) {
+      res.status(400).json({ error: "Passwords do not match" });
+      return;
+    }
+
+    user.passwordHash = await bcrypt.hash(newPassword, BCRYPT_COST);
+    changed = true;
+  }
+
+  if (changed) {
+    writeDatabase(database);
+  }
+
+  req.session.username = user.username;
+  res.json({ user: toUserResponse(user) });
+});
+
+app.get("/api/users", requireAuth, requireAdmin, (req, res) => {
+  const database = readDatabase();
+  res.json({
+    users: (database.users || []).map((user) => toUserResponse(user)),
+  });
+});
+
+app.post("/api/users", requireAuth, requireAdmin, async (req, res) => {
+  const database = readDatabase();
+  const username = sanitizeUsername(req.body && req.body.username);
+  const password = sanitizePassword(req.body && req.body.password);
+  const confirmPassword = sanitizePassword(req.body && req.body.confirmPassword);
+
+  if (!username) {
+    res.status(400).json({ error: "Username must be 3-40 characters and use letters, numbers, ., _, or -" });
+    return;
+  }
+
+  if (findUserByUsername(database, username)) {
+    res.status(409).json({ error: "Username is already taken" });
+    return;
+  }
+
+  const passwordError = validatePasswordStrength(password);
+  if (passwordError) {
+    res.status(400).json({ error: passwordError });
+    return;
+  }
+
+  if (!confirmPassword || password !== confirmPassword) {
+    res.status(400).json({ error: "Passwords do not match" });
+    return;
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    username,
+    passwordHash: await bcrypt.hash(password, BCRYPT_COST),
+    createdAt: nowIso(),
+    isAdmin: false,
+  };
+  database.users = Array.isArray(database.users) ? database.users : [];
+  database.users.push(user);
+  writeDatabase(database);
+  res.status(201).json({ user: toUserResponse(user) });
+});
+
+app.delete("/api/users/:userId", requireAuth, requireAdmin, (req, res) => {
+  if (req.params.userId === req.studioUser.id) {
+    res.status(400).json({ error: "Admins cannot delete their own account" });
+    return;
+  }
+
+  const database = readDatabase();
+  const userIndex = (database.users || []).findIndex(
+    (user) => user.id === req.params.userId,
+  );
+  if (userIndex < 0) {
+    res.status(404).json({ error: "User not found" });
+    return;
+  }
+
+  database.users.splice(userIndex, 1);
+  writeDatabase(database);
+  res.json({ ok: true });
 });
 
 const projectsRouter = express.Router();
@@ -2594,12 +2966,6 @@ if (!IS_API_ONLY_MODE) {
 
     res.sendFile(path.join(PUBLIC_DIR, "index.html"));
   });
-}
-
-if (!process.env.APP_PASSWORD) {
-  console.warn(
-    "[Studio] APP_PASSWORD is not set. Using default password 'studio'.",
-  );
 }
 
 app.listen(PORT, () => {

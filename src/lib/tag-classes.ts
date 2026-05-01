@@ -1,0 +1,46 @@
+export const TRACK_STATUS_CLASS: Record<string, string> = {
+  Idea: "border-slate-500/60 bg-slate-500/20 text-slate-200",
+  Demo: "border-sky-500/60 bg-sky-500/20 text-sky-300",
+  Recording: "border-orange-500/60 bg-orange-500/20 text-orange-300",
+  Mixing: "border-amber-500/60 bg-amber-500/20 text-amber-300",
+  Mastering: "border-violet-500/60 bg-violet-500/20 text-violet-300",
+  Done: "border-emerald-500/60 bg-emerald-500/20 text-emerald-300",
+};
+
+export const MOOD_TAG_CLASS: Record<string, string> = {
+  Dark: "border-purple-400/50 bg-purple-400/20 text-purple-200",
+  Energetic: "border-orange-400/60 bg-orange-400/20 text-orange-200",
+  Melancholic: "border-blue-400/60 bg-blue-400/20 text-blue-200",
+  Hype: "border-pink-400/60 bg-pink-400/20 text-pink-200",
+  Chill: "border-teal-400/60 bg-teal-400/20 text-teal-200",
+  Aggressive: "border-red-500/60 bg-red-500/20 text-red-300",
+  Euphoric: "border-yellow-500/60 bg-yellow-500/20 text-yellow-200",
+  Nostalgic: "border-amber-700/60 bg-amber-700/20 text-amber-200",
+};
+
+export const CAMELOT_CLASS: Record<string, string> = {
+  "1A": "border-teal-400/60 bg-teal-400/20 text-teal-200",
+  "1B": "border-teal-500/60 bg-teal-500/20 text-teal-200",
+  "2A": "border-green-400/60 bg-green-400/20 text-green-200",
+  "2B": "border-green-500/60 bg-green-500/20 text-green-200",
+  "3A": "border-lime-400/60 bg-lime-400/20 text-lime-200",
+  "3B": "border-lime-500/60 bg-lime-500/20 text-lime-200",
+  "4A": "border-yellow-400/60 bg-yellow-400/20 text-yellow-200",
+  "4B": "border-yellow-500/60 bg-yellow-500/20 text-yellow-200",
+  "5A": "border-orange-400/60 bg-orange-400/20 text-orange-200",
+  "5B": "border-orange-500/60 bg-orange-500/20 text-orange-200",
+  "6A": "border-red-400/60 bg-red-400/20 text-red-200",
+  "6B": "border-red-500/60 bg-red-500/20 text-red-200",
+  "7A": "border-rose-400/60 bg-rose-400/20 text-rose-200",
+  "7B": "border-rose-500/60 bg-rose-500/20 text-rose-200",
+  "8A": "border-fuchsia-400/60 bg-fuchsia-400/20 text-fuchsia-200",
+  "8B": "border-fuchsia-500/60 bg-fuchsia-500/20 text-fuchsia-200",
+  "9A": "border-violet-400/60 bg-violet-400/20 text-violet-200",
+  "9B": "border-violet-500/60 bg-violet-500/20 text-violet-200",
+  "10A": "border-indigo-400/60 bg-indigo-400/20 text-indigo-200",
+  "10B": "border-indigo-500/60 bg-indigo-500/20 text-indigo-200",
+  "11A": "border-sky-400/60 bg-sky-400/20 text-sky-200",
+  "11B": "border-sky-500/60 bg-sky-500/20 text-sky-200",
+  "12A": "border-cyan-400/60 bg-cyan-400/20 text-cyan-200",
+  "12B": "border-cyan-500/60 bg-cyan-500/20 text-cyan-200",
+};

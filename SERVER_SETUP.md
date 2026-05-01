@@ -49,15 +49,15 @@ nano ~/studio/.env
 Paste and edit:
 
 ```env
-# Strong password for the app login
-APP_PASSWORD=change_me_to_something_strong
-
 # Port the container will expose on the host
 PORT=3000
 
 # A random secret for session cookies — generate one:
 # openssl rand -hex 32
 SESSION_SECRET=paste_your_random_secret_here
+
+# Optional bcrypt work factor for user password hashing
+BCRYPT_COST=12
 
 # Absolute path on the HOST where your project data lives.
 # Point this at your mergeFS pool directory.
@@ -196,7 +196,7 @@ Your data in `DATA_PATH` is never touched by the build.
 
 | Variable | Default | Description |
 |---|---|---|
-| `APP_PASSWORD` | `studio` | Login password for the app |
 | `PORT` | `3000` | Host port the app listens on |
 | `SESSION_SECRET` | `studio-session-secret` | Secret for signing session cookies — change this! |
+| `BCRYPT_COST` | `12` | bcrypt work factor for password hashing |
 | `DATA_PATH` | `./data` | **Host path** to your data directory (mergeFS pool path goes here) |
