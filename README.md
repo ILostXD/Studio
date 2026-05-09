@@ -8,9 +8,14 @@ For Ubuntu server + Docker deployment (including mergeFS data path setup), see:
 
 - [SERVER_SETUP.md](./SERVER_SETUP.md)
 
+## Website
+
+- [https://ilostxd.github.io/studio-site](https://ilostxd.github.io/studio-site)
+
 ## Table of Contents
 
 - [Overview](#overview)
+- [Website](#website)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
